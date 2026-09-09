@@ -1,6 +1,6 @@
 # DLSS Media Player
 
-Windows MPV launcher for local videos, URLs, and Streamlink live streams, with experimental DLSS neural enhancement, live RTX Video Super Resolution/HDR, and optional offline RIFE frame generation.
+Windows media player for local videos, URLs, online videos, and live streams, with experimental DLSS neural enhancement, live RTX Video Super Resolution/HDR, and optional offline RIFE frame generation.
 
 ## Live playback
 
