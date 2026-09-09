@@ -18,6 +18,7 @@ Checkout-Dependency 'https://github.com/NVIDIA/DLSS.git' 'a291cc7d2cc642a51566f3
 Checkout-Dependency 'https://github.com/KhronosGroup/Vulkan-Headers.git' 'ee2ec5fd83dafce291024683b50dc89219333076' $vulkan
 Checkout-Dependency 'https://github.com/2600th/dlss5-video-player.git' '335ddc4523e3614e6dfc507c7d271b8fe0c71ebb' $native
 Copy-Item (Join-Path $PSScriptRoot 'live-rtx-feeder\dlss5-feed.cpp') (Join-Path $feeder 'src') -Force
+Copy-Item (Join-Path $PSScriptRoot 'live-rtx-feeder\media_source.h') (Join-Path $feeder 'src') -Force
 Copy-Item (Join-Path $PSScriptRoot 'live-rtx-feeder\media_rtx.h') (Join-Path $feeder 'src') -Force
 Copy-Item (Join-Path $sdk 'include\*') (Join-Path $feeder 'external\ngx') -Recurse -Force
 New-Item -ItemType Directory -Force (Join-Path $feeder 'external\ngx\libs') | Out-Null

@@ -65,10 +65,17 @@ static bool Build(ID3D11DeviceContext* ctx,D3D11_TEXTURE2D_DESC input,D3D11_TEXT
  if(!Input(s.inputCopy.Get(),s.convertEnum.Get(),s.rgbView)||!Output(s.nv12.Get(),s.convertEnum.Get(),s.yuvOut)||!Input(s.nv12.Get(),s.enhanceEnum.Get(),s.yuvView)||!Output(s.result.Get(),s.enhanceEnum.Get(),s.resultOut))return false;
  Configure(s.convert.Get(),s.iw,s.ih,s.iw,s.ih,DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709);
  Configure(s.enhance.Get(),s.iw,s.ih,s.ow,s.oh,DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709,hdr?DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+ if(MediaSource::active){
+  RECT fit=MediaSource::Fit(s.iw,s.ih,s.ow,s.oh);
+  s.context->VideoProcessorSetStreamDestRect(s.enhance.Get(),0,TRUE,&fit);
+  D3D11_VIDEO_COLOR black={};black.RGBA.A=1;
+  s.context->VideoProcessorSetOutputBackgroundColor(s.enhance.Get(),FALSE,&black);
+ }
  struct Extension{UINT version,method,enable;};
  if(Mode()&1){Extension ext={1,2,1};if(!Check(s.context->VideoProcessorSetStreamExtension(s.enhance.Get(),0,&VsrGuid,sizeof(ext),&ext),"enable RTX VSR"))return false;}
  if(hdr){UINT supported=0;if(!Check(s.context->VideoProcessorGetStreamExtension(s.enhance.Get(),0,&HdrGuid,sizeof(supported),&supported),"query RTX HDR")||!supported){Report("[media-rtx] RTX HDR unavailable");return false;}Extension ext={4,3,1};if(!Check(s.context->VideoProcessorSetStreamExtension(s.enhance.Get(),0,&HdrGuid,sizeof(ext),&ext),"enable RTX HDR"))return false;}
- Report("[media-rtx] DLSS -> RTX VSR=%d HDR=%d: %ux%u -> %ux%u; format=%d",Mode()&1,hdr,s.iw,s.ih,s.ow,s.oh,(int)target.Format);
+ Report("[media-rtx] DLSS -> RTX VSR requested=%d HDR=%d: %ux%u -> %ux%u; format=%d",Mode()&1,hdr,s.iw,s.ih,s.ow,s.oh,(int)target.Format);
+ if((Mode()&1) && (s.iw>2560||s.ih>1440))Report("[media-rtx] VSR input exceeds documented 1440p range; driver activation is not guaranteed");
  return true;
 }
 static bool Process(ID3D11DeviceContext* ctx,ID3D11Texture2D* input,ID3D11RenderTargetView* rtv){

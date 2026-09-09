@@ -3091,9 +3091,10 @@ static bool RecreateFeatureOnly(UINT w, UINT h)
     return true;
 }
 
+#include "media_source.h"
 static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h, DXGI_FORMAT bb_fmt)
 {
-    const bool want_sr = g_cfg.work_upscale == 2 && g_cfg.mode >= 2 && (w != backbuffer_w || h != backbuffer_h);   // mode 1 copies COLOR->OUTPUT, so sizes must match
+    const bool want_sr = !MediaSource::active && g_cfg.work_upscale == 2 && g_cfg.mode >= 2 && (w != backbuffer_w || h != backbuffer_h);   // mode 1 copies COLOR->OUTPUT, so sizes must match
     if (g.session_ready && g_cfg.mode >= 2 && g.feature != nullptr && g.tex12[SLOT_COLOR] != nullptr &&
         w == g.width && h == g.height && backbuffer_w == g.backbuffer_width &&
         backbuffer_h == g.backbuffer_height && bb_fmt == g.bb_fmt && want_sr == g.sr_requested)
@@ -3207,7 +3208,7 @@ static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h,
     { Log("[feed] output SRV creation failed"); ReleaseFrameResources(); return false; }
 
     // Work resolution below 100%: a native-size, SRV-able copy of the frame to downsample from.
-    if (backbuffer_w != w || backbuffer_h != h)
+    if (!MediaSource::active && (backbuffer_w != w || backbuffer_h != h))
     {
         D3D11_TEXTURE2D_DESC sd = {};
         sd.Width      = backbuffer_w;
@@ -4884,6 +4885,15 @@ static bool CopyOrResampleInputs(ID3D11DeviceContext *ctx,
                                  ID3D11ShaderResourceView *mv_srv, ID3D11ShaderResourceView *depth_srv,
                                  ID3D11ShaderResourceView *mask_srv, UINT source_w, UINT source_h)
 {
+    if (MediaSource::active) {
+        D3D11_BOX box={MediaSource::x,MediaSource::y,0,MediaSource::x+g.width,MediaSource::y+g.height,1};
+        ctx->CopySubresourceRegion(g.tex11[SLOT_COLOR],0,0,0,0,color,0,&box);
+        ctx->CopySubresourceRegion(g.tex11[SLOT_DEPTH],0,0,0,0,depth,0,&box);
+        ctx->CopySubresourceRegion(g.tex11[SLOT_MV],0,0,0,0,mv,0,&box);
+        if(g.mask_ok)ctx->CopySubresourceRegion(g.tex11[SLOT_MASK],0,0,0,0,mask,0,&box);
+        else {const FLOAT zero[4]={};ctx->ClearRenderTargetView(g.input_rtv[SLOT_MASK],zero);}
+        return true;
+    }
     // Below 100% the frame has to be sampled, and neither candidate source can be:
     // ReShade's backbuffer has no D3D11_BIND_SHADER_RESOURCE (CreateShaderResourceView
     // on it fails), and `DLSS5_ColorInput : COLOR` is a semantic texture with no resource
@@ -5057,7 +5067,7 @@ static void BlitOutputToBackbuffer(ID3D11DeviceContext *ctx, ID3D11RenderTargetV
     const UINT out_w = g.output_width  != 0 ? g.output_width  : g.width;
     const UINT out_h = g.output_height != 0 ? g.output_height : g.height;
     const bool scaled = out_w != g.backbuffer_width || out_h != g.backbuffer_height;
-    const bool fsr    = g_cfg.work_upscale != 0 && g.fsr_ok && g.easu_ps != nullptr;
+    const bool fsr    = !MediaSource::active && g_cfg.work_upscale != 0 && g.fsr_ok && g.easu_ps != nullptr;
     const bool easu   = fsr && scaled && g.easu_rtv != nullptr;
     const bool rcas   = fsr && g_cfg.work_sharpness > 0.0f && (easu || !scaled);   // RCAS reads at native texel indices
 
@@ -5065,6 +5075,7 @@ static void BlitOutputToBackbuffer(ID3D11DeviceContext *ctx, ID3D11RenderTargetV
     vp.Width    = static_cast<float>(g.backbuffer_width);
     vp.Height   = static_cast<float>(g.backbuffer_height);
     vp.MaxDepth = 1.0f;
+    if(MediaSource::active){RECT fit=MediaSource::Fit(out_w,out_h,g.backbuffer_width,g.backbuffer_height);vp.TopLeftX=(FLOAT)fit.left;vp.TopLeftY=(FLOAT)fit.top;vp.Width=(FLOAT)(fit.right-fit.left);vp.Height=(FLOAT)(fit.bottom-fit.top);const FLOAT black[4]={0,0,0,1};ctx->ClearRenderTargetView(rtv,black);}
     ID3D11SamplerState *smps[] = { g.blit_sampler };
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(nullptr, 0);
@@ -6492,9 +6503,11 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
     // DLSS's dynamic render range starts at ceil(50%) of the output; the cost knob rounds
     // DOWN to even, which at exactly 50% lands one pixel short and no preset covers it.
     // Under work_upscale=2 round UP to even instead.
-    const bool sr_wanted = g_cfg.work_upscale == 2 && g_cfg.mode >= 2 && g_cfg.work_resolution < 100;
-    const UINT work_w = sr_wanted ? ScaledExtentUp(cd.Width,  g_cfg.work_resolution) : ScaledExtent(cd.Width,  g_cfg.work_resolution);
-    const UINT work_h = sr_wanted ? ScaledExtentUp(cd.Height, g_cfg.work_resolution) : ScaledExtent(cd.Height, g_cfg.work_resolution);
+    const bool source_mode=MediaSource::Update(cd.Width,cd.Height);
+    if(MediaSource::Enabled()&&!source_mode)ok=false;
+    const bool sr_wanted = !source_mode && g_cfg.work_upscale == 2 && g_cfg.mode >= 2 && g_cfg.work_resolution < 100;
+    const UINT work_w = source_mode ? MediaSource::width : sr_wanted ? ScaledExtentUp(cd.Width,  g_cfg.work_resolution) : ScaledExtent(cd.Width,  g_cfg.work_resolution);
+    const UINT work_h = source_mode ? MediaSource::height : sr_wanted ? ScaledExtentUp(cd.Height, g_cfg.work_resolution) : ScaledExtent(cd.Height, g_cfg.work_resolution);
     const bool want_sr = sr_wanted && (work_w != cd.Width || work_h != cd.Height);
     const bool needs_build11 = !g.frame_ready || work_w != g.width || work_h != g.height ||
                                cd.Width != g.backbuffer_width || cd.Height != g.backbuffer_height ||
@@ -6523,6 +6536,7 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
             work_w, work_h, g_cfg.work_resolution, cd.Width, cd.Height, FormatName(cd.Format),
             FormatName(md.Format), FormatName(dd.Format), g.depth_reversed ? 1 : 0,
             (bfl >> 12) & 0xF, (bfl >> 8) & 0xF);
+        if(source_mode)Log("[media-source] native video crop %u,%u %ux%u -> display %ux%u; no MPV enlargement",MediaSource::x,MediaSource::y,work_w,work_h,cd.Width,cd.Height);
         ok = BuildResources(work_w, work_h, cd.Width, cd.Height, cd.Format);
         if (!ok) FeedFail("resource build");
         else g.consecutive_fails = 0;

@@ -41,6 +41,9 @@ sealed partial class Engine {
         info.EnvironmentVariables["PATH"] = Path.Combine(Root,"tools")+";"+Environment.GetEnvironmentVariable("PATH");
         // Child-scoped setting also reaches MPV launched by Streamlink.
         info.EnvironmentVariables["DLSS_MEDIA_RTX"] = PreparedPlayback?"0":LiveRtxMode.ToString();
+        string geometry = !PreparedPlayback && LiveSourceResolution && (LiveRtxMode&1)!=0 ? Path.Combine(Path.GetTempPath(),"dlss-video-"+Guid.NewGuid().ToString("N")+".txt") : "";
+        info.EnvironmentVariables["DLSS_MEDIA_GEOMETRY"] = geometry;
+        try {
         using(var p = new Process { StartInfo=info }) {
             p.OutputDataReceived += (s,e)=> { if(e.Data!=null) output(e.Data); };
             p.ErrorDataReceived += (s,e)=> { if(e.Data!=null) output(e.Data); };
@@ -49,6 +52,7 @@ sealed partial class Engine {
                 await Task.Run(()=>p.WaitForExit()); token.ThrowIfCancellationRequested(); return p.ExitCode;
             }
         }
+        } finally { if(geometry.Length>0)try{File.Delete(geometry);}catch(IOException){} }
     }
     public async Task<int> Play(string input, bool url, int quality, CancellationToken token) {
         string player=PreparedPlayback?Path.Combine(Root,"tools","plain-player","mpv.exe"):Path.Combine(Root,"mpv.exe"); if(!File.Exists(player)) throw new FileNotFoundException("mpv.exe is missing.");
