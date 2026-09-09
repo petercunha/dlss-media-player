@@ -1,0 +1,19 @@
+Experimental runtime source and terms notice
+
+This assembled runtime bundle is intended for private testing and
+experimentation, not public release. All third-party components remain the
+property of their respective owners under their applicable licenses. This
+statement does not change those licenses or grant additional permissions.
+
+NVIDIA DLSS / NGX: https://github.com/NVIDIA/DLSS
+NVIDIA Streamline: https://github.com/NVIDIA-RTX/Streamline
+ReShade: https://github.com/crosire/reshade
+RenoDX: https://github.com/clshortfuse/renodx
+
+The NVIDIA, ReShade, RenoDX, Streamline, and modified neural-rendering files are
+not relicensed by DLSS Video Player. The neural DLL is modified and reports
+Authenticode HashMismatch; the ReShade proxy and RenoDX add-on are unsigned.
+
+Redistribution permission for this combined supplied binary set remains
+unresolved. Review each upstream's applicable current terms before sharing or
+publishing the package. No endorsement or redistribution permission is claimed.

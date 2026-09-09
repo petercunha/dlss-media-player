@@ -1,0 +1,27 @@
+[
+  {
+    "Name": "dxgi.dll",
+    "Version": "6.8.0.2155",
+    "SHA256": "0CEE63F9C9F13F3AC909C5B4903F4DBB4B719A7AB3B4F13B0DEAF83C814B94F7"
+  },
+  {
+    "Name": "nvngx_dlss.dll",
+    "Version": "310,9,0,0",
+    "SHA256": "07C7FEA19A24C75102BF34D1A4A775640CE323A0B2265D4887B331E62486C44F"
+  },
+  {
+    "Name": "nvngx_dlssnr.dll",
+    "Version": "310.8.SF.0",
+    "SHA256": "6EB209E764F39872625DEBD6ABAF45E2BB6322F6F270F781F70C059AE30B3927"
+  },
+  {
+    "Name": "dlss5-feed.addon64",
+    "Version": "0.14.0-beta.5 + local RTX post-processing",
+    "SHA256": "D9C64F52C70EED8DB4A0DC3963566DEDFFFA3F61ADB7CD27E97D71407EE245F1"
+  },
+  {
+    "Name": "renodx-dlss5.addon64",
+    "Version": "0.2026.0828.0517",
+    "SHA256": "D5ADF82EB44B065F4C590AC91FE824BAB07AFEA0EB9F994BDE936710C8593952"
+  }
+]

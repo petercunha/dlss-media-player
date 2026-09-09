@@ -1,0 +1,8 @@
+Export backend source: https://github.com/2600th/dlss5-video-player
+Source revision: 335ddc4523e3614e6dfc507c7d271b8fe0c71ebb
+NVIDIA SDK: https://github.com/NVIDIA/DLSS
+SDK revision: a291cc7d2cc642a51566f3dfd5376f635cd1b284
+Local changes: ExportMain.cpp and NeuralExport CMake target; OfflineNeuralRenderer.cpp hardware prefetch and bounded asynchronous encoding; TemporalGuides.cpp parallel independent flow rows; MediaPipeline.cpp NVENC p4 preset.
+Build: fetch the SDK into external/DLSS, configure with VS 2022 x64 and BUILD_TESTING=OFF, then build target NeuralExport.
+Runtime: uses copies of the already-installed ReShade, RenoDX and NVIDIA neural runtime.
+RIFE source: https://github.com/nihui/rife-ncnn-vulkan (20221029 Windows release, rife-v4.6).
