@@ -2,6 +2,14 @@
 
 Windows media player for local videos, URLs, online videos, and live streams, with experimental DLSS neural enhancement, live RTX Video Super Resolution/HDR, and optional offline RIFE frame generation.
 
+## Screenshots
+
+| Live playback | Export with RIFE |
+| --- | --- |
+| [![Live playback controls with DLSS work size, output size, and RTX VSR plus HDR](docs/images/launcher-live.jpg)](docs/images/launcher-live.jpg) | [![Export controls with RIFE 2× frame generation and 1080p output](docs/images/launcher-export.jpg)](docs/images/launcher-export.jpg) |
+
+Click either screenshot for the full-size view. Live playback offers RTX VSR/HDR after DLSS; offline export offers optional RIFE frame generation and a separate export size.
+
 ## Live playback
 
 Open `DLSS-Media-Launcher.exe`. Select **Live playback** for a file or yt-dlp URL, or **Streamlink live** for Twitch and other Streamlink-supported sites.
