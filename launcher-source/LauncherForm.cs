@@ -30,7 +30,7 @@ sealed class Launcher : Form {
   ComboAt(quality,520,219,212,"URL source quality",new[]{"Up to 720p","Up to 1080p","Best available"});quality.SelectedIndex=1;
   LabelAt("MOTION / FRAME GENERATION",28,264,250,22,muted);LabelAt("LIVE DLSS WORK SIZE",274,264,225,22,muted);sizeLabel=LabelAt("EXPORT SIZE",520,264,210,22,muted);
   ComboAt(motion,28,293,225,"Motion and frame generation",new[]{"Off · original frames","Display smoothing (live)","RIFE 2× (prepare first)"});
-  ComboAt(work,274,293,225,"Live DLSS work size",new[]{"100% · full quality","75% · balanced","50% · faster","Source · VSR upscale"});work.SelectedIndex=3;
+  ComboAt(work,274,293,225,"Live DLSS work size",new[]{"100% · full quality","75% · balanced","50% · faster","Source · VSR upscale"});work.SelectedIndex=0;
   ComboAt(size,520,293,212,"Export size",new[]{"Source resolution","At least 1080p","At least 1440p","At least 2160p"});
   ComboAt(liveSize,520,293,212,"Live output size",new[]{"Fit player window","Fit within 1080p","Fit within 1440p","Fit within 2160p","Display · fullscreen"});liveSize.SelectedIndex=4;
   hint.SetBounds(28,341,704,47);hint.ForeColor=muted;Controls.Add(hint);
@@ -44,19 +44,19 @@ sealed class Launcher : Form {
   LabelAt("LIVE RTX PROCESSING · AFTER DLSS",28,338,704,24,muted);
   ComboAt(rtx,28,367,704,"Live RTX processing",new[]{"Off","RTX Video Super Resolution","RTX Video HDR","RTX VSR + RTX Video HDR"});rtx.SelectedIndex=3;
   engine.Log=Append;start.Click+=async(s,e)=>await Start();stop.Click+=(s,e)=>{if(active!=null){status.Text="Stopping…";active.Cancel();}};AcceptButton=start;
-  rtx.SelectedIndexChanged+=(s,e)=>{if(!loadingSettings && (rtx.SelectedIndex&1)!=0)work.SelectedIndex=3;RefreshHint();};work.SelectedIndexChanged+=(s,e)=>RefreshHint();action.SelectedIndexChanged+=(s,e)=>RefreshHint();motion.SelectedIndexChanged+=(s,e)=>RefreshHint();
+  rtx.SelectedIndexChanged+=(s,e)=>RefreshHint();work.SelectedIndexChanged+=(s,e)=>RefreshHint();action.SelectedIndexChanged+=(s,e)=>RefreshHint();motion.SelectedIndexChanged+=(s,e)=>RefreshHint();
   AllowDrop=true;DragEnter+=(s,e)=>{if(active==null&&(e.Data.GetDataPresent(DataFormats.FileDrop)||e.Data.GetDataPresent(DataFormats.UnicodeText)))e.Effect=DragDropEffects.Copy;};
   DragDrop+=(s,e)=>{input.Text=e.Data.GetDataPresent(DataFormats.FileDrop)?((string[])e.Data.GetData(DataFormats.FileDrop))[0]:((string)e.Data.GetData(DataFormats.UnicodeText)).Trim();};
   FormClosing+=(s,e)=>{SaveSettings();if(active!=null){e.Cancel=true;status.Text="Stopping before closing…";closeWhenDone=true;active.Cancel();}};
-  LoadSettings();loadingSettings=false;if(legacySettings && (rtx.SelectedIndex&1)!=0)work.SelectedIndex=3;RefreshHint();if(!string.IsNullOrWhiteSpace(initial))input.Text=initial;
+  LoadSettings();RefreshHint();if(!string.IsNullOrWhiteSpace(initial))input.Text=initial;
  }
- bool closeWhenDone; bool loadingSettings=true,legacySettings=true;
+ bool closeWhenDone;
  Label LabelAt(string text,int x,int y,int w,int h,Color color){var l=new Label{Text=text,Location=new Point(x,y),Size=new Size(w,h),ForeColor=color};Controls.Add(l);return l;}
  void ButtonAt(Button b,string text,int x,int y,int w,int h,bool primary){b.Text=text;b.SetBounds(x,y,w,h);b.FlatStyle=FlatStyle.Flat;b.FlatAppearance.BorderSize=0;b.BackColor=primary?accent:panel;b.ForeColor=primary?bg:ink;b.Cursor=Cursors.Hand;Controls.Add(b);}
  void ComboAt(ComboBox b,int x,int y,int w,string accessible,string[] values){b.SetBounds(x,y,w,32);b.DropDownStyle=ComboBoxStyle.DropDownList;b.FlatStyle=FlatStyle.Flat;b.BackColor=panel;b.ForeColor=ink;b.AccessibleName=accessible;b.Items.AddRange(values);b.SelectedIndex=0;Controls.Add(b);}
  ComboBox[] Options(){return new[]{action,network,quality,motion,work,size,rtx,liveSize};}
  void SaveSettings(){try{File.WriteAllText(SettingsPath,new JavaScriptSerializer().Serialize(Options().Select(c=>c.SelectedIndex).Concat(new[]{1}).ToArray()));}catch(IOException){}catch(UnauthorizedAccessException){}}
- void LoadSettings(){try{if(!File.Exists(SettingsPath))return;int[] v=new JavaScriptSerializer().Deserialize<int[]>(File.ReadAllText(SettingsPath));legacySettings=v.Length<9;var controls=Options();for(int i=0;i<Math.Min(v.Length,controls.Length);i++)if(v[i]>=0&&v[i]<controls[i].Items.Count)controls[i].SelectedIndex=v[i];}catch(Exception){}}
+ void LoadSettings(){try{if(!File.Exists(SettingsPath))return;int[] v=new JavaScriptSerializer().Deserialize<int[]>(File.ReadAllText(SettingsPath));var controls=Options();for(int i=0;i<Math.Min(v.Length,controls.Length);i++)if(v[i]>=0&&v[i]<controls[i].Items.Count)controls[i].SelectedIndex=v[i];}catch(Exception){}}
  void RefreshHint(){bool streamlink=action.SelectedIndex==3;bool offline=!streamlink&&(action.SelectedIndex!=0||motion.SelectedIndex==2);hint.Text=streamlink?"Streamlink → DLSS → optional RTX VSR/HDR. Live output size controls the window/display; DLSS work size controls neural processing cost.":offline?"Prepare first: DLSS enhancement, optional RIFE 2×, then play or save. Larger exports use Lanczos resizing; this is not DLSS Super Resolution.":"Source mode: DLSS at source size, then VSR enlarges to the display. Percentage modes use display-sized input. HDR requires Windows HDR.";if(!offline && work.SelectedIndex==3 && (rtx.SelectedIndex&1)==0)hint.Text="Source mode requires RTX VSR. With VSR off, DLSS uses 100% display size.";if(active==null){size.Visible=offline;liveSize.Visible=!offline;sizeLabel.Text=offline?"EXPORT SIZE":"LIVE OUTPUT SIZE";size.Enabled=offline;liveSize.Enabled=!offline;rtx.Enabled=!offline;work.Enabled=!offline;network.Enabled=!offline&&!streamlink;motion.Enabled=!streamlink;browse.Enabled=!streamlink;}start.Text=streamlink?"Watch live stream":action.SelectedIndex==2?"Export video…":offline?"Prepare & play":"Play video";}
  void Append(string line){if(IsDisposed||!IsHandleCreated)return;try{BeginInvoke((Action)(()=>{if(IsDisposed)return;if(log.TextLength>24000)log.Text=log.Text.Substring(log.TextLength-16000);log.AppendText(line+Environment.NewLine);if(line.StartsWith("[download]")||line.StartsWith("DLSS frames")||line.StartsWith("RIFE frames")||line.Contains(" / 4 ·"))status.Text=line;}));}catch(InvalidOperationException){}}
  async Task Start(){
