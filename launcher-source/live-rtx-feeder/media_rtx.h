@@ -112,7 +112,7 @@ static ID3D11ShaderResourceView* Prepare(ID3D11DeviceContext* ctx,ID3D11Texture2
   pre=State{};preCrop.Reset();preOutput.Reset();preRtv.Reset();preSrv.Reset();
   ComPtr<ID3D11Device> dev;ctx->GetDevice(&dev);
   if(!Texture(dev.Get(),MediaSource::width,MediaSource::height,d.Format,D3D11_BIND_RENDER_TARGET,preCrop)||
-     !Texture(dev.Get(),MediaSource::workWidth,MediaSource::workHeight,d.Format,D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE,preOutput)||
+     !Texture(dev.Get(),MediaSource::workWidth,MediaSource::workHeight,DXGI_FORMAT_R8G8B8A8_UNORM,D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE,preOutput)||
      FAILED(dev->CreateRenderTargetView(preOutput.Get(),nullptr,&preRtv))||FAILED(dev->CreateShaderResourceView(preOutput.Get(),nullptr,&preSrv)))return nullptr;
  }
  preOutput->GetDesc(&old);

@@ -45,10 +45,12 @@ RIFE explicitly selects Vulkan GPU 0, verified as the RTX 5070 Ti on the origina
 
 ## Integration tests
 
-Compile a test from `tests/` with all five top-level launcher `.cs` files, `/target:exe /main:<test class>`, and the same assembly references as build.ps1.
+Compile a test from `tests/` with all six top-level launcher `.cs` files (including `Images.cs`), `/target:exe /main:<test class>`, and the same assembly references as build.ps1.
 
 - ExportRegressionTests: player root, synthetic source path, new destination, and `off`, `rife`, or `cancel`.
 - LiveRtxTests: player root, local SDR path or live HTTPS URL, and output target index (4 = fullscreen). Its HDR assertions require Windows HDR enabled. Append `source` to test source mode, an optional expected dimension substring, and an optional RTX mode (1 = VSR only, 3 = both). The source-mode bridge is `config/source-resolution.lua`; keep that file with the runtime.
 - The launcher also supports `--self-test`.
 
 Generate test media outside Git. Raw logs are ignored because they may contain source URLs and local paths. Sanitized summaries are in verification/.
+
+ImageTests exercises local files/direct URLs, PNG dimensions, alpha, and overwrite protection. Compile like the other launcher tests and pass player root, synthetic PNG source (or URL), and a new PNG destination. ColorConversionTests.cpp uses the feeder SDK include paths plus launcher-source/live-rtx-feeder, and links d3d11.lib, dxgi.lib, and user32.lib; it checks RGB10 input through VSR into SDR RGBA8 against known color patches.
