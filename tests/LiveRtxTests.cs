@@ -8,9 +8,15 @@ class LiveRtxTests{
    else{if(await e.Play(a[1],false,720,cancel.Token)!=0)throw new Exception("Player failed");}
   }catch(OperationCanceledException){Console.WriteLine("Cancelled test playback");}}
   string log=File.ReadAllText(Path.Combine(a[0],"dlss5-feed.log")),neural=File.ReadAllText(Path.Combine(a[0],"ReShade.log"));
-  if(!log.Contains("processed neural frame")||((e.LiveRtxMode&2)!=0&&!log.Contains("HDR=1"))||!neural.Contains("inline feature 18 evaluation succeeded"))throw new Exception("Missing verification");
+  if(!log.Contains("[feed] frame 1 delivered")||((e.LiveRtxMode&2)!=0&&!log.Contains("HDR=1"))||!neural.Contains("inline feature 18 evaluation succeeded"))throw new Exception("Missing verification");
   if(log.Contains("[media-rtx] ERROR"))throw new Exception("RTX error");
-  if(e.LiveSourceResolution && !log.Contains("[media-source] native video crop"))throw new Exception("Missing source-resolution crop");
+  if(e.LiveSourceResolution && !log.Contains("[media-source] original"))throw new Exception("Missing VSR-first routing");
+  if(e.LiveSourceResolution){
+   bool skipped=log.Contains("VSR SKIPPED (source above 1080p)");
+   if(skipped && log.Contains("Before DLSS: VSR requested=1"))throw new Exception("VSR ran on an above-1080p source");
+   if(!skipped && !log.Contains("Before DLSS: VSR requested=1"))throw new Exception("Missing pre-DLSS VSR processing");
+   if(log.Contains("After DLSS: VSR requested=1"))throw new Exception("VSR must not run twice in VSR-first mode");
+  }
   if(a.Length>4 && !log.Contains(a[4]))throw new Exception("Unexpected neural dimensions; expected "+a[4]);
   Console.WriteLine("PASS: DLSS -> VSR/HDR live GPU pipeline and shutdown");
  }

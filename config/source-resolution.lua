@@ -6,10 +6,10 @@ local last = ''
 local function publish()
     local d = mp.get_property_native('osd-dimensions')
     local p = mp.get_property_native('video-out-params')
-    local value = '0 0 0 0 0 0\n'
+    local value = '0 0 0 0 0 0 0 0\n'
     if d and p and d.w and d.h and d.ml and d.mr and d.mt and d.mb then
-        value = string.format('%d %d %d %d %d %d\n', d.w, d.h,
-            d.ml, d.mt, d.w-d.ml-d.mr, d.h-d.mt-d.mb)
+        value = string.format('%d %d %d %d %d %d %d %d\n', d.w, d.h,
+            d.ml, d.mt, d.w-d.ml-d.mr, d.h-d.mt-d.mb, p.dw or p.w, p.dh or p.h)
     end
     if value == last then return end
     local f = io.open(path, 'w')
@@ -19,7 +19,7 @@ mp.observe_property('osd-dimensions', 'native', publish)
 mp.observe_property('video-out-params', 'native', publish)
 mp.register_event('end-file', function()
     local f = io.open(path, 'w')
-    if f then f:write('0 0 0 0 0 0\n'); f:close() end
+    if f then f:write('0 0 0 0 0 0 0 0\n'); f:close() end
     last = ''
 end)
 mp.register_event('shutdown', function() os.remove(path) end)

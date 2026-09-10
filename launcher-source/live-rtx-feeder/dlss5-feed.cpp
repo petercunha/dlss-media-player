@@ -2929,14 +2929,14 @@ static bool MakeBlitShaders()
         // jitter_uv: work_upscale=2 shifts the whole sampling grid by a sub-pixel amount
         // each frame (the synthetic jitter DLSS reconstructs from); zero otherwise. All four
         // guides move together so depth/vectors/mask stay aligned with the colour sample.
-        "cbuffer ResampleConstants : register(b0) { float2 mv_scale; float2 jitter_uv; };\n"
+        "cbuffer ResampleConstants : register(b0) { float2 mv_scale; float2 jitter_uv; float2 region_scale; float2 region_offset; float2 color_scale; float2 color_offset; };\n"
         "struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
         "VSOut vs(uint id : SV_VertexID) { VSOut o; float2 uv = float2((id << 1) & 2, id & 2);\n"
         "  o.uv = uv; o.pos = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1); return o; }\n"
         "float4 ps(VSOut i) : SV_Target { return float4(src_color.Sample(linear_smp, i.uv).rgb, 1.0); }\n"
         "struct ResampleOut { float4 color : SV_Target0; float2 mv : SV_Target1; float depth : SV_Target2; float mask : SV_Target3; };\n"
-        "ResampleOut ps_resample(VSOut i) { ResampleOut o; float2 uv = i.uv + jitter_uv;\n"
-        "  o.color = src_color.SampleLevel(linear_smp, uv, 0);\n"
+        "ResampleOut ps_resample(VSOut i) { ResampleOut o; float2 base_uv = i.uv + jitter_uv; float2 uv = base_uv * region_scale + region_offset;\n"
+        "  o.color = src_color.SampleLevel(linear_smp, base_uv * color_scale + color_offset, 0);\n"
         "  o.mv = src_mv.SampleLevel(point_smp, uv, 0) * mv_scale;\n"
         "  o.depth = src_depth.SampleLevel(point_smp, uv, 0);\n"
         "  o.mask = src_mask.SampleLevel(point_smp, uv, 0); return o; }\n";
@@ -2973,7 +2973,7 @@ static bool MakeBlitShaders()
     if (FAILED(g.dev11->CreateSamplerState(&sd, &g.point_sampler))) { Log("[feed] point sampler failed"); return false; }
 
     D3D11_BUFFER_DESC cbd = {};
-    cbd.ByteWidth = 16;
+    cbd.ByteWidth = 48;
     cbd.Usage = D3D11_USAGE_DYNAMIC;
     cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -3094,7 +3094,7 @@ static bool RecreateFeatureOnly(UINT w, UINT h)
 #include "media_source.h"
 static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h, DXGI_FORMAT bb_fmt)
 {
-    const bool want_sr = !MediaSource::active && g_cfg.work_upscale == 2 && g_cfg.mode >= 2 && (w != backbuffer_w || h != backbuffer_h);   // mode 1 copies COLOR->OUTPUT, so sizes must match
+    const bool want_sr = (MediaSource::active || g_cfg.work_upscale == 2) && g_cfg.mode >= 2 && (w != backbuffer_w || h != backbuffer_h);   // mode 1 copies COLOR->OUTPUT, so sizes must match
     if (g.session_ready && g_cfg.mode >= 2 && g.feature != nullptr && g.tex12[SLOT_COLOR] != nullptr &&
         w == g.width && h == g.height && backbuffer_w == g.backbuffer_width &&
         backbuffer_h == g.backbuffer_height && bb_fmt == g.bb_fmt && want_sr == g.sr_requested)
@@ -3130,20 +3130,21 @@ static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h,
     // quality preset whose dynamic render range covers this ratio. Otherwise fall back to
     // the DLAA contract and let the spatial expand-back handle it, and say so once.
     g.sr_requested = want_sr;
-    g.sr_active    = want_sr && PickSrQuality(w, h, backbuffer_w, backbuffer_h);
+    UINT target_w=MediaSource::active?MediaSource::outputWidth:backbuffer_w,target_h=MediaSource::active?MediaSource::outputHeight:backbuffer_h;
+    g.sr_active    = want_sr && PickSrQuality(w, h, target_w, target_h);
     if (want_sr && !g.sr_active)
         Log("[feed] work_upscale=2: no DLSS preset covers %ux%u -> %ux%u; staying on DLAA + FSR 1 for this build", w, h, backbuffer_w, backbuffer_h);
-    g.output_width  = g.sr_active ? backbuffer_w : w;
-    g.output_height = g.sr_active ? backbuffer_h : h;
+    g.output_width  = g.sr_active ? target_w : w;
+    g.output_height = g.sr_active ? target_h : h;
     g.jitter_index  = 0;
     g.jitter_x = g.jitter_y = 0.0f;
     if (g.sr_active)
     {
-        const float ratio = static_cast<float>(backbuffer_w) / static_cast<float>(w);
+        const float ratio = static_cast<float>(target_w) / static_cast<float>(w);
         g.jitter_phases = g_cfg.jitter_phases > 0 ? static_cast<UINT>(g_cfg.jitter_phases)
                                                   : static_cast<UINT>(ceilf(8.0f * ratio * ratio));
         Log("[feed] work_upscale=2: DLSS %s, %ux%u -> %ux%u, Halton(2,3) over %u phases, jitter sign %+d",
-            g.sr_quality_name, w, h, backbuffer_w, backbuffer_h, g.jitter_phases, g_cfg.jitter_sign);
+            g.sr_quality_name, w, h, target_w, target_h, g.jitter_phases, g_cfg.jitter_sign);
     }
 
     // Output first, on its own, because it is the only slot that carries a UAV bind and so
@@ -3208,7 +3209,7 @@ static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h,
     { Log("[feed] output SRV creation failed"); ReleaseFrameResources(); return false; }
 
     // Work resolution below 100%: a native-size, SRV-able copy of the frame to downsample from.
-    if (!MediaSource::active && (backbuffer_w != w || backbuffer_h != h))
+    if (MediaSource::active || backbuffer_w != w || backbuffer_h != h)
     {
         D3D11_TEXTURE2D_DESC sd = {};
         sd.Width      = backbuffer_w;
@@ -4879,34 +4880,31 @@ static bool BuildResourcesGl(UINT w, UINT h, DXGI_FORMAT bb_fmt, uint64_t rtv_ha
 // D3D11 work-resolution input preparation and copy-back
 // ---------------------------------------------------------------------------
 
+#include "media_rtx.h"
 static bool CopyOrResampleInputs(ID3D11DeviceContext *ctx,
                                  ID3D11Texture2D *color, ID3D11Texture2D *mv, ID3D11Texture2D *depth,
                                  ID3D11Texture2D *mask, ID3D11ShaderResourceView *color_srv,
                                  ID3D11ShaderResourceView *mv_srv, ID3D11ShaderResourceView *depth_srv,
                                  ID3D11ShaderResourceView *mask_srv, UINT source_w, UINT source_h)
 {
-    if (MediaSource::active) {
-        D3D11_BOX box={MediaSource::x,MediaSource::y,0,MediaSource::x+g.width,MediaSource::y+g.height,1};
-        ctx->CopySubresourceRegion(g.tex11[SLOT_COLOR],0,0,0,0,color,0,&box);
-        ctx->CopySubresourceRegion(g.tex11[SLOT_DEPTH],0,0,0,0,depth,0,&box);
-        ctx->CopySubresourceRegion(g.tex11[SLOT_MV],0,0,0,0,mv,0,&box);
-        if(g.mask_ok)ctx->CopySubresourceRegion(g.tex11[SLOT_MASK],0,0,0,0,mask,0,&box);
-        else {const FLOAT zero[4]={};ctx->ClearRenderTargetView(g.input_rtv[SLOT_MASK],zero);}
-        return true;
+    ID3D11ShaderResourceView* cleaned=nullptr;
+    if(MediaSource::active && MediaSource::useVsr){
+        cleaned=MediaRtx::Prepare(ctx,color);
+        if(!cleaned)return false; // Do not silently substitute ordinary scaling for VSR.
     }
     // Below 100% the frame has to be sampled, and neither candidate source can be:
     // ReShade's backbuffer has no D3D11_BIND_SHADER_RESOURCE (CreateShaderResourceView
     // on it fails), and `DLSS5_ColorInput : COLOR` is a semantic texture with no resource
     // of its own, so get_texture_binding() returns a null view for it. So copy the frame
     // into a texture we own and sample that. One native-resolution copy, only below 100%.
-    if (source_w != g.width || source_h != g.height)
+    if (MediaSource::active || source_w != g.width || source_h != g.height)
     {
         if (g.color_stage == nullptr || g.color_stage_srv == nullptr) return false;
         ctx->CopyResource(g.color_stage, color);
         color_srv = g.color_stage_srv;
     }
 
-    if (source_w == g.width && source_h == g.height)
+    if (!MediaSource::active && source_w == g.width && source_h == g.height)
     {
         ctx->CopyResource(g.tex11[SLOT_COLOR], color);
         ctx->CopyResource(g.tex11[SLOT_DEPTH], depth);
@@ -4924,12 +4922,17 @@ static bool CopyOrResampleInputs(ID3D11DeviceContext *ctx,
     if (FAILED(ctx->Map(g.resample_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
     { Log("[feed] resample constant-buffer map failed"); return false; }
     // A shift of j work pixels is j / work_size in uv, whatever the source size is.
-    const float constants[4] = {
-        static_cast<float>(g.width) / static_cast<float>(source_w),
-        static_cast<float>(g.height) / static_cast<float>(source_h),
-        g.sr_active ? g.jitter_x / static_cast<float>(g.width)  : 0.0f,
-        g.sr_active ? g.jitter_y / static_cast<float>(g.height) : 0.0f
+    const float rw=MediaSource::active?(float)MediaSource::width/source_w:1.f;
+    const float rh=MediaSource::active?(float)MediaSource::height/source_h:1.f;
+    const float rx=MediaSource::active?(float)MediaSource::x/source_w:0.f;
+    const float ry=MediaSource::active?(float)MediaSource::y/source_h:0.f;
+    const float constants[12] = {
+        (float)g.width/(MediaSource::active?MediaSource::width:source_w),
+        (float)g.height/(MediaSource::active?MediaSource::height:source_h),
+        g.sr_active ? g.jitter_x/g.width : 0.f,g.sr_active ? g.jitter_y/g.height : 0.f,
+        rw,rh,rx,ry,cleaned?1.f:rw,cleaned?1.f:rh,cleaned?0.f:rx,cleaned?0.f:ry
     };
+    if(cleaned)color_srv=cleaned;
     memcpy(mapped.pData, constants, sizeof(constants));
     ctx->Unmap(g.resample_cb, 0);
 
@@ -5031,7 +5034,6 @@ static void UpdateFsrConstants(ID3D11DeviceContext *ctx, UINT in_w, UINT in_h)
 // upsamples into easu_tex and RCAS sharpens from there into the backbuffer; at 100% EASU
 // has nothing to do and RCAS runs alone straight from the Output; with sharpness 0 EASU
 // writes the backbuffer directly. Either way the game and ReShade never see a size change.
-#include "media_rtx.h"
 static void BlitOutputToBackbuffer(ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv)
 {
     if (MediaRtx::Process(ctx, g.tex11[SLOT_OUTPUT], rtv)) return;
@@ -6505,9 +6507,9 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
     // Under work_upscale=2 round UP to even instead.
     const bool source_mode=MediaSource::Update(cd.Width,cd.Height);
     if(MediaSource::Enabled()&&!source_mode)ok=false;
-    const bool sr_wanted = !source_mode && g_cfg.work_upscale == 2 && g_cfg.mode >= 2 && g_cfg.work_resolution < 100;
-    const UINT work_w = source_mode ? MediaSource::width : sr_wanted ? ScaledExtentUp(cd.Width,  g_cfg.work_resolution) : ScaledExtent(cd.Width,  g_cfg.work_resolution);
-    const UINT work_h = source_mode ? MediaSource::height : sr_wanted ? ScaledExtentUp(cd.Height, g_cfg.work_resolution) : ScaledExtent(cd.Height, g_cfg.work_resolution);
+    const bool sr_wanted = g_cfg.mode >= 2 && (source_mode || (g_cfg.work_upscale == 2 && g_cfg.work_resolution < 100));
+    const UINT work_w = source_mode ? MediaSource::workWidth : sr_wanted ? ScaledExtentUp(cd.Width,  g_cfg.work_resolution) : ScaledExtent(cd.Width,  g_cfg.work_resolution);
+    const UINT work_h = source_mode ? MediaSource::workHeight : sr_wanted ? ScaledExtentUp(cd.Height, g_cfg.work_resolution) : ScaledExtent(cd.Height, g_cfg.work_resolution);
     const bool want_sr = sr_wanted && (work_w != cd.Width || work_h != cd.Height);
     const bool needs_build11 = !g.frame_ready || work_w != g.width || work_h != g.height ||
                                cd.Width != g.backbuffer_width || cd.Height != g.backbuffer_height ||
@@ -6536,7 +6538,7 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
             work_w, work_h, g_cfg.work_resolution, cd.Width, cd.Height, FormatName(cd.Format),
             FormatName(md.Format), FormatName(dd.Format), g.depth_reversed ? 1 : 0,
             (bfl >> 12) & 0xF, (bfl >> 8) & 0xF);
-        if(source_mode)Log("[media-source] native video crop %u,%u %ux%u -> display %ux%u; no MPV enlargement",MediaSource::x,MediaSource::y,work_w,work_h,cd.Width,cd.Height);
+        if(source_mode)Log("[media-source] original %ux%u; VSR %s; crop %ux%u -> intermediate %ux%u -> DLSS target %ux%u -> optional HDR",MediaSource::nativeWidth,MediaSource::nativeHeight,MediaSource::useVsr?"before DLSS (1080p cap)":"SKIPPED (source above 1080p)",MediaSource::width,MediaSource::height,work_w,work_h,MediaSource::outputWidth,MediaSource::outputHeight);
         ok = BuildResources(work_w, work_h, cd.Width, cd.Height, cd.Format);
         if (!ok) FeedFail("resource build");
         else g.consecutive_fails = 0;
