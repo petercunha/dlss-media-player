@@ -51,6 +51,7 @@ struct EncoderSpec {
     uint32_t height{};
     double fps{};
     EncoderKind kind{EncoderKind::HevcNvenc};
+    bool preciseFrameClock{};
 };
 
 struct MaterializeResult {

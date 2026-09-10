@@ -26,11 +26,11 @@ Normal playback scales in MPV, applies DLSS neural enhancement, then optionally 
 
 With **Render Buffer** enabled, acquisition, neural rendering and playback run independently:
 
-`source → short chunks → persistent DLSS worker → completed enhanced-video queue → MPV → optional HDR`
+`capture → prepare/resize → persistent DLSS worker → package → completed-video queue → MPV → optional HDR`
 
 MPV receives encoded frames that have already been enhanced. Its live DLSS pass is bypassed. The selected buffer is a target amount of **completed enhanced video**, not downloaded source data. Playback waits for that target, then pauses/refills if enhanced output runs out. A short finite clip can start with less than the target after rendering finishes.
 
-The worker retains its GPU device/model between chunks. The activity log reports chunk throughput as a multiple of realtime: **1.5×** can gain buffer, **0.7×** will eventually need another refill. Task Manager's overall GPU percentage does not measure the latency of the pipeline's GPU waits. Buffering absorbs temporary stalls; it cannot guarantee continuous playback when sustained rendering is slower than the source.
+Preparation, neural rendering and packaging overlap through bounded queues. Neural frames remain sequential in one retained GPU/model session. At 100% work size, packaging copies the encoded neural video instead of decoding and encoding it again; reduced work sizes still require a final resize/encode. Buffered intermediates use a 90 kHz clock to preserve frame cadence during copying. The activity log separates preparation, neural processing and packaging times; **neural rate** excludes the other stages. The cumulative pipeline time includes startup, source waits and queue backpressure, so neither number alone is a sustained throughput guarantee. Task Manager's overall GPU percentage does not measure the latency of the pipeline's GPU waits. Buffering absorbs temporary stalls; it cannot guarantee continuous playback when sustained rendering is slower than the source.
 
 Files are read ahead in bounded chunks. Recognized Streamlink URLs use live capture automatically, including with buffering enabled. Other yt-dlp URLs download first in buffered mode. Source URLs, authentication and site restrictions remain subject to Streamlink/yt-dlp support.
 
@@ -59,6 +59,8 @@ Images use the verified offline DLSS neural renderer, retain transparency, and p
 ## Build and setup
 
 See [BUILDING.md](BUILDING.md) for runtime dependencies and build commands, and [Launcher-Guide.md](Launcher-Guide.md) for usage. This is a source repository; NVIDIA models and third-party executable distributions must be provisioned separately. [Third-party notices](THIRD_PARTY.md).
+
+See [performance measurements](verification/render-performance.md) for the September 10 optimization pass and remaining GPU readback limitations.
 
 ## Verification
 

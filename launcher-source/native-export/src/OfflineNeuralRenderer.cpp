@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <thread>
 
@@ -180,7 +181,9 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
         if(!preserveHistory)evaluator.ResetTemporal();
         return true;
     };
-    if (!reopenFromZero(verifiedContinuation)) {
+    // A retained feature consumed no priming frames. Its decoder is already at
+    // frame zero and prefetching; reopening discards that work every chunk.
+    if (!(verifiedContinuation && primed == 0) && !reopenFromZero(verifiedContinuation)) {
         if (stop.stop_requested()) return cancelled(L"Neural render was cancelled.");
         result.detail = L"The source could not be restarted from frame zero.";return result;
     }
@@ -188,7 +191,7 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
     auto runAttempt = [&](EncoderKind kind) {
         AttemptResult attempt;
         const EncodeError startError = encoder.Start(
-            EncoderSpec{request.width, request.height, request.fps, kind},
+            EncoderSpec{request.width, request.height, request.fps, kind, request.reuseSession},
             request.stagingVideoPath);
         if (startError != EncodeError::None) {
             attempt.failure = startError == EncodeError::Cancelled
@@ -257,7 +260,9 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
                     ? AttemptFailure::Cancelled : AttemptFailure::Encoder;
                 attempt.encoderError=writeError;encoder.Cancel();return attempt;
             }
-            ++attempt.frames;++attempt.evaluations;attempt.bytes+=captured.size();
+            // Production encoding takes ownership of captured; its size was
+            // validated before enqueue and may now be zero after the move.
+            ++attempt.frames;++attempt.evaluations;attempt.bytes+=expectedBytes;
             if (!attempt.hasTimestamp) {
                 attempt.firstTimestamp=frame.timestamp100ns;
                 attempt.hasTimestamp=true;
@@ -367,7 +372,7 @@ struct TestEncoderAdapter {
 };
 #else
 struct ProductionSourceAdapter {
-    VideoDecoder decoder;
+    VideoDecoder decoder;double readSeconds{};
     bool Open(const std::filesystem::path& path,std::stop_token stop){
         // Hardware decoding and the bounded prefetch queue overlap source I/O
         // with neural rendering. Queue order preserves temporal history.
@@ -375,9 +380,11 @@ struct ProductionSourceAdapter {
     }
     void Close(){decoder.Close();}
     JobRead Read(JobFrame& frame,std::stop_token stop){
+        const auto started=SteadyClock::now();
         for(;;){
             VideoFrame decoded;const auto read=decoder.ReadNextAvailable(decoded,stop);
             if(read==VideoReadResult::NotReady){std::this_thread::sleep_for(std::chrono::milliseconds(1));continue;}
+            readSeconds+=std::chrono::duration<double>(SteadyClock::now()-started).count();
             frame={std::move(decoded.bgra),decoded.timestamp100ns,decoded.discontinuity};
             if(read==VideoReadResult::FrameReady)return JobRead::FrameReady;
             if(read==VideoReadResult::EndOfStream)return JobRead::EndOfStream;
@@ -390,6 +397,7 @@ struct ProductionSourceAdapter {
 struct ProductionEvaluatorAdapter {
     D3D12RendererOwner renderer;uint64_t successfulEvaluations{};
     TemporalGuideGenerator guides;
+    double guideSeconds{},renderSeconds{};uint64_t profiledFrames{};
     uint32_t width{},height{};double fps{};bool forceReset{true},stableVideo{false};
     bool Initialize(HWND window,uint32_t w,uint32_t h,double rate){
         if(renderer&&width==w&&height==h&&fps==rate)return true;
@@ -405,9 +413,12 @@ struct ProductionEvaluatorAdapter {
         return true;
     }
     bool Submit(const JobFrame& frame,bool reset,bool capture,std::vector<uint8_t>& output){
+        const auto started=SteadyClock::now();
         GuideFrame guide;bool temporalReset=forceReset||reset;forceReset=false;
         if(!guides.Generate(frame.bgra.data(),width,height,width,height,fps,temporalReset,guide))return false;
         temporalReset=temporalReset||!guide.hasHistory; // Propagate detected cuts to NGX, not only the guide field.
+        const auto prepared=SteadyClock::now();
+        guideSeconds+=std::chrono::duration<double>(prepared-started).count();
         const float frameMs=static_cast<float>(1000.0/fps);
         if(!capture){const bool ok=renderer->RenderFrame(frame.bgra.data(),frame.bgra.size(),
             guide.guideGridRGBA32F.data(),guide.guideGridRGBA32F.size()*sizeof(float),
@@ -416,6 +427,7 @@ struct ProductionEvaluatorAdapter {
         if(!renderer->RenderFrameForCache(frame.bgra.data(),frame.bgra.size(),
             guide.guideGridRGBA32F.data(),guide.guideGridRGBA32F.size()*sizeof(float),
             guide.gridW,guide.gridH,temporalReset,frameMs,captured))return false;
+        renderSeconds+=std::chrono::duration<double>(SteadyClock::now()-prepared).count();++profiledFrames;
         output=std::move(captured.bgra);++successfulEvaluations;return true;
     }
     bool FeatureCreated()const{return renderer&&renderer->DLSSFeatureCreated();}
@@ -430,7 +442,7 @@ struct ProductionEncoderAdapter {
     std::deque<std::vector<uint8_t>> queue;
     std::jthread worker;
     EncodeError error{EncodeError::None};
-    bool finishing{};
+    bool finishing{};double enqueueSeconds{},finishSeconds{};
     ~ProductionEncoderAdapter(){Cancel();}
     EncodeError Start(const EncoderSpec& spec,const std::filesystem::path& path){
         Cancel(); error=encoder.Start(spec,path); finishing=false;
@@ -450,19 +462,22 @@ struct ProductionEncoderAdapter {
         });
         return EncodeError::None;
     }
-    EncodeError WriteFrame(std::span<const uint8_t> frame,std::stop_token stop){
+    EncodeError WriteFrame(std::vector<uint8_t>& frame,std::stop_token stop){
+        const auto started=SteadyClock::now();
         std::unique_lock lock(mutex);
         if(!cv.wait(lock,stop,[this]{return queue.size()<3||error!=EncodeError::None;}))return EncodeError::Cancelled;
         if(error!=EncodeError::None)return error;
-        queue.emplace_back(frame.begin(),frame.end());cv.notify_all();return EncodeError::None;
+        queue.emplace_back(std::move(frame));cv.notify_all();
+        enqueueSeconds+=std::chrono::duration<double>(SteadyClock::now()-started).count();return EncodeError::None;
     }
     EncodeError Finish(std::stop_token stop){
+        const auto started=SteadyClock::now();
         std::stop_callback cancel(stop,[this]{worker.request_stop();cv.notify_all();});
         {std::lock_guard lock(mutex);finishing=true;cv.notify_all();}
         if(worker.joinable())worker.join();
         if(stop.stop_requested())return EncodeError::Cancelled;
         if(error!=EncodeError::None)return error;
-        return encoder.Finish(stop);
+        const auto result=encoder.Finish(stop);finishSeconds+=std::chrono::duration<double>(SteadyClock::now()-started).count();return result;
     }
     void Cancel(){
         if(worker.joinable()){worker.request_stop();cv.notify_all();worker.join();}
@@ -558,9 +573,16 @@ NeuralRenderResult OfflineNeuralRenderer::Run(const NeuralRenderRequest& request
     }
     auto& evaluator=request.reuseSession?*session:oneShot;
     evaluator.stableVideo=request.reuseSession;
+    evaluator.guideSeconds=0;evaluator.renderSeconds=0;evaluator.profiledFrames=0;
     auto result=RunJob(request,std::move(progress),stop,source,evaluator,encoder,
         [logPath,logOffset]{return ReadLogSegment(logPath,logOffset);},
         []{return SteadyClock::now();},continuation);
+    if(result.ok&&evaluator.profiledFrames){
+        const double ms=1000.0/evaluator.profiledFrames;
+        std::cout<<"DLSS_PROFILE frames="<<evaluator.profiledFrames<<" decode_wait_ms="<<source.readSeconds*ms
+            <<" guides_ms="<<evaluator.guideSeconds*ms<<" render_readback_ms="<<evaluator.renderSeconds*ms
+            <<" encoder_enqueue_ms="<<encoder.enqueueSeconds*ms<<" encoder_finish_s="<<encoder.finishSeconds<<std::endl;
+    }
     if(request.reuseSession&&!result.ok)session.reset();
     return result;
 #endif

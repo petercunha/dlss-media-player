@@ -4,6 +4,7 @@ class BufferedPlaybackTests {
  static async Task Run(string[] args){
   var e=new Engine(args[0]){LiveBufferSeconds=5,LiveTarget=0,LiveRtxMode=2,SmoothPlayback=true};
   if(args.Length>4)e.LiveTarget=int.Parse(args[4]);
+  if(args.Length>5)e.LiveWorkPercent=int.Parse(args[5]);
   string jobs=Path.Combine(e.Root,"Cache","playback");var previous=Directory.Exists(jobs)?Directory.GetDirectories(jobs):new string[0];
   int chunks=0,frames=0;bool bypass=false,hdr=false,ready=false,audio=false;var lines=new List<string>();
   e.Log=line=>{Console.WriteLine(line);lock(lines){lines.Add(line);if(line.StartsWith("DLSS_BATCH_DONE 0 "))frames+=int.Parse(line.Split(' ')[2]);if(line.Contains("Audio  --aid"))audio=true;if(line.StartsWith("Render buffer · chunk"))chunks++;if(line.Contains("prerendered playback: live DLSS bypassed"))bypass=true;if(line.Contains("HDR=1"))hdr=true;if(line.StartsWith("Render buffer ready"))ready=true;}};

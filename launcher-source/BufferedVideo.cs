@@ -15,6 +15,10 @@ using System.Threading.Tasks;
 sealed partial class Engine {
     const int RenderChunkSeconds=4;
     sealed class RenderChunk {public string Path;public double Duration;}
+    sealed class PreparedChunk {
+        public string Source,Input,Neural,Result;public VideoInfo Info;
+        public int Index,Width,Height,WorkW,WorkH;public double Duration,Offset,PrepareSeconds,NeuralSeconds;
+    }
     public async Task<int> PlayBuffered(string source,int quality,CancellationToken caller,string streamlinkQuality=null){
         if(streamlinkQuality==null&&IsTwitchUrl(source)){Log("Automatically selected Streamlink for Twitch.");return await PlayStreamlink(source,quality,caller);}
         using(var gate=new Semaphore(1,1,"Local\\DLSSMediaOfflineExport")){
@@ -32,13 +36,15 @@ sealed partial class Engine {
         int seconds=Math.Max(1,Math.Min(60,LiveBufferSeconds));
         using(var stop=CancellationTokenSource.CreateLinkedTokenSource(caller))
         using(var raw=new BlockingCollection<string>(2))
+        using(var prepared=new BlockingCollection<PreparedChunk>(1))
+        using(var evaluated=new BlockingCollection<PreparedChunk>(1))
         using(var ready=new BlockingCollection<RenderChunk>(Math.Max(2,(seconds+3)/4+1))){
             var token=stop.Token;var prefilled=new TaskCompletionSource<bool>((TaskCreationOptions)64);
             var listener=new TcpListener(IPAddress.Loopback,0);listener.Start(1);
             int port=((IPEndPoint)listener.LocalEndpoint).Port;
             Exception failure=null;object errorLock=new object();
             Action<Exception> fail=ex=>{if(token.IsCancellationRequested)return;lock(errorLock){if(failure==null)failure=ex;}prefilled.TrySetCanceled();stop.Cancel();};
-            Task capture=null,render=null,serve=null,watch=null;Exception caught=null;int code=0;
+            Task capture=null,prepare=null,render=null,package=null,serve=null,watch=null;Exception caught=null;int code=0;
             try{
                 Log("Render buffer: preparing "+seconds+" seconds of completed DLSS frames in Cache/playback.");
                 SyncNeuralSettings();
@@ -46,16 +52,32 @@ sealed partial class Engine {
                     if(streamlinkQuality==null)await CaptureFile(source,job,raw,token);
                     else await CaptureStreamlink(source,streamlinkQuality,job,raw,token);
                 }catch(Exception ex){fail(ex);}finally{raw.CompleteAdding();}});
+                prepare=Task.Run(async()=>{try{
+                    int index=0;
+                    foreach(string chunk in raw.GetConsumingEnumerable(token))
+                        prepared.Add(await PrepareBufferedChunk(chunk,job,index++,token),token);
+                }catch(Exception ex){fail(ex);}finally{prepared.CompleteAdding();}});
                 render=Task.Run(async()=>{try{using(var session=new BufferedNeuralSession(this,token)){
-                    double offset=0,initial=0;int index=0;
-                    foreach(string chunk in raw.GetConsumingEnumerable(token)){
-                        var rendered=await RenderBufferedChunk(chunk,job,index++,offset,session,token);
-                        offset+=rendered.Duration;ready.Add(rendered,token);initial+=rendered.Duration;
+                    double offset=0;
+                    foreach(var chunk in prepared.GetConsumingEnumerable(token)){
+                        var timer=Stopwatch.StartNew();
+                        int result=await session.Render(new[]{chunk.Input,chunk.Neural,chunk.WorkW.ToString(),chunk.WorkH.ToString(),Num(chunk.Info.Fps),Num(chunk.Info.Duration)});
+                        if(result!=0||!File.Exists(chunk.Neural))throw new Exception("Buffered DLSS rendering failed to verify neural output.");
+                        chunk.NeuralSeconds=timer.Elapsed.TotalSeconds;
+                        chunk.Duration=session.LastFrameCount/chunk.Info.Fps;chunk.Offset=offset;offset+=chunk.Duration;
+                        evaluated.Add(chunk,token);
+                    }
+                }}catch(Exception ex){fail(ex);}finally{evaluated.CompleteAdding();}});
+                package=Task.Run(async()=>{try{
+                    double initial=0;var throughput=Stopwatch.StartNew();
+                    foreach(var chunk in evaluated.GetConsumingEnumerable(token)){
+                        var rendered=await PackageBufferedChunk(chunk,token);
+                        ready.Add(rendered,token);initial+=rendered.Duration;
+                        Log("Render pipeline · "+Num(initial)+"s completed / "+Num(throughput.Elapsed.TotalSeconds)+"s elapsed (includes startup and queue waits)");
                         if(initial>=seconds)prefilled.TrySetResult(true);
-                        File.Delete(chunk);
                     }
                     if(initial==0)throw new Exception("The source ended without producing any video.");
-                    prefilled.TrySetResult(true);}
+                    prefilled.TrySetResult(true);
                 }catch(Exception ex){fail(ex);}finally{ready.CompleteAdding();}});
                 watch=Task.Run(async()=>{try{while(!token.IsCancellationRequested){
                     await Task.Delay(1500,token);
@@ -73,8 +95,14 @@ sealed partial class Engine {
                 code=await Run(Path.Combine(Root,"mpv.exe"),args,token,Log);
             }catch(Exception ex){caught=ex;}
                 stop.Cancel();listener.Stop();BufferedPlayback=false;
-                foreach(var task in new[]{capture,render,serve,watch})if(task!=null)try{await task;}catch{}
-                try{RemoveJob(job,parent);}catch(IOException){Log("Temporary playback files remain in Cache/playback.");}
+                foreach(var task in new[]{capture,prepare,render,package,serve,watch})if(task!=null)try{await task;}catch{}
+                // Windows can release decoder/encoder file handles shortly
+                // after the cancelled process tree reports its exit.
+                for(int attempt=0;;attempt++){
+                    try{RemoveJob(job,parent);break;}
+                    catch(IOException){if(attempt==9){Log("Temporary playback files remain in Cache/playback.");break;}}
+                    await Task.Delay(200);
+                }
             if(failure!=null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
             if(caught!=null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(caught).Throw();
             return code;
@@ -118,7 +146,7 @@ sealed partial class Engine {
         if(captureFailure!=null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(captureFailure).Throw();
         }
     }
-    async Task<RenderChunk> RenderBufferedChunk(string source,string job,int index,double offset,BufferedNeuralSession session,CancellationToken token){
+    async Task<PreparedChunk> PrepareBufferedChunk(string source,string job,int index,CancellationToken token){
         var timer=Stopwatch.StartNew();var info=await Probe(source,token);
         int boundW=info.Width,boundH=info.Height;
         if(LiveTarget==4){boundW=LiveDisplayWidth;boundH=LiveDisplayHeight;}
@@ -126,26 +154,29 @@ sealed partial class Engine {
         double scale=Math.Min(boundW/(double)info.Width,boundH/(double)info.Height);
         int width=Math.Max(2,(int)(info.Width*scale)/2*2),height=Math.Max(2,(int)(info.Height*scale)/2*2);
         int workW=Math.Max(2,width*LiveWorkPercent/100/2*2),workH=Math.Max(2,height*LiveWorkPercent/100/2*2);
-        string normalized=Path.Combine(job,"render-source.mp4"),neural=Path.Combine(job,"neural.mp4"),result=Path.Combine(job,"enhanced-"+index.ToString("D6")+".ts");
+        string normalized=Path.Combine(job,"render-source-"+index.ToString("D6")+".mp4"),neural=Path.Combine(job,"neural-"+index.ToString("D6")+".mp4"),result=Path.Combine(job,"enhanced-"+index.ToString("D6")+".ts");
         var color=new StringBuilder();await Run(Tool("ffprobe"),new[]{"-v","error","-select_streams","v:0","-show_entries","stream=color_transfer","-of","default=nw=1:nk=1",source},token,l=>color.Append(l));
         if(color.ToString().Contains("smpte2084")||color.ToString().Contains("arib-std-b67"))throw new Exception("Buffered enhancement needs SDR input. Use normal playback for an HDR source.");
         string input=source;
         if(info.Width!=workW||info.Height!=workH||info.Rotated){
             await Ffmpeg(new[]{"-i",source,"-an","-vf","scale="+workW+":"+workH+":flags=lanczos","-c:v","h264_nvenc","-preset","p1","-cq","16","-b:v","0","-pix_fmt","yuv420p",normalized},token);input=normalized;
         }
-        if(File.Exists(neural))File.Delete(neural);
-        int code=await session.Render(new[]{input,neural,workW.ToString(),workH.ToString(),Num(info.Fps),Num(info.Duration)});
-        if(code!=0||!File.Exists(neural))throw new Exception("Buffered DLSS rendering failed to verify neural output.");
-        // Use the verified CFR frame clock. Container duration includes AAC
-        // priming/tail padding and must not accumulate at every chunk boundary.
-        double videoDuration=session.LastFrameCount/info.Fps;
+        return new PreparedChunk{Source=source,Input=input,Neural=neural,Result=result,Info=info,Index=index,Width=width,Height=height,WorkW=workW,WorkH=workH,PrepareSeconds=timer.Elapsed.TotalSeconds};
+    }
+    async Task<RenderChunk> PackageBufferedChunk(PreparedChunk chunk,CancellationToken token){
+        var timer=Stopwatch.StartNew();var info=chunk.Info;
+        string neural=chunk.Neural,source=chunk.Source,result=chunk.Result;
+        int workW=chunk.WorkW,workH=chunk.WorkH,width=chunk.Width,height=chunk.Height,index=chunk.Index;
+        double videoDuration=chunk.Duration,offset=chunk.Offset;
         var mux=new List<string>{"-i",neural,"-i",source,"-map","0:v:0","-map","1:a:0?"};
-        if(workW!=width||workH!=height)mux.AddRange(new[]{"-vf","scale="+width+":"+height+":flags=lanczos"});
-        mux.AddRange(new[]{"-c:v","h264_nvenc","-preset","p1","-cq","18","-b:v","0","-pix_fmt","yuv420p","-g",Math.Max(1,(int)Math.Round(info.Fps)).ToString(),"-bf","0","-fps_mode","passthrough","-c:a","aac","-b:a","192k","-af","aresample=async=1:first_pts=0,apad","-t",Num(videoDuration),"-avoid_negative_ts","disabled","-output_ts_offset",Num(offset),"-mpegts_copyts","1","-mpegts_flags","+initial_discontinuity","-muxdelay","0","-f","mpegts",result});
+        bool resize=workW!=width||workH!=height;
+        if(resize)mux.AddRange(new[]{"-vf","scale="+width+":"+height+":flags=lanczos","-c:v","h264_nvenc","-preset","p1","-cq","18","-b:v","0","-pix_fmt","yuv420p","-g",Math.Max(1,(int)Math.Round(info.Fps)).ToString(),"-bf","0","-fps_mode","passthrough"});
+        else mux.AddRange(new[]{"-c:v","copy"}); // Preserve completed frames; no second decode/encode.
+        mux.AddRange(new[]{"-c:a","aac","-b:a","192k","-af","aresample=async=1:first_pts=0,apad","-t",Num(videoDuration),"-avoid_negative_ts","disabled","-output_ts_offset",Num(offset),"-mpegts_copyts","1","-mpegts_flags","+initial_discontinuity","-muxdelay","0","-f","mpegts",result});
         await Ffmpeg(mux,token);var check=await Probe(result,token);
         if(Math.Abs(check.Duration-info.Duration)>Math.Max(.3,3/info.Fps))throw new Exception("Buffered segment timing verification failed.");
-        File.Delete(neural);if(File.Exists(normalized))File.Delete(normalized);
-        Log("Render buffer · chunk "+(index+1)+" · "+Num(videoDuration)+"s ready · "+(videoDuration/timer.Elapsed.TotalSeconds).ToString("0.00",Invariant)+"× realtime · "+workW+"×"+workH+" DLSS");
+        File.Delete(neural);if(chunk.Input!=source)File.Delete(chunk.Input);File.Delete(source);
+        Log("Render buffer · chunk "+(index+1)+" · "+Num(videoDuration)+"s ready · "+(videoDuration/chunk.NeuralSeconds).ToString("0.00",Invariant)+"× neural rate · "+workW+"×"+workH+" DLSS · prepare "+chunk.PrepareSeconds.ToString("0.00",Invariant)+"s / neural "+chunk.NeuralSeconds.ToString("0.00",Invariant)+"s / package "+timer.Elapsed.TotalSeconds.ToString("0.00",Invariant)+"s · video "+(resize?"resized":"copied"));
         return new RenderChunk{Path=result,Duration=videoDuration};
     }
     // Keep the neural device/model alive between chunks. Recreating it per chunk

@@ -413,7 +413,11 @@ std::vector<std::wstring> BuildEncoderArguments(const EncoderSpec& spec,
             L"-c:v", L"libx264", L"-preset", L"slow", L"-crf", L"16",
             L"-pix_fmt", (spec.width % 2 || spec.height % 2) ? L"yuv444p" : L"yuv420p"});
     }
-    arguments.insert(arguments.end(), {L"-f", L"matroska", output.wstring()});
+    // Buffered output is remuxed without decoding. Matroska's millisecond clock
+    // would otherwise quantize 30/60 fps timestamps before the MPEG-TS handoff.
+    if(spec.preciseFrameClock)
+        arguments.insert(arguments.end(), {L"-video_track_timescale", L"90000", L"-f", L"mp4", output.wstring()});
+    else arguments.insert(arguments.end(), {L"-f", L"matroska", output.wstring()});
     return arguments;
 }
 
