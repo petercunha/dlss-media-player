@@ -13,14 +13,18 @@ class SourceModeTests {
    File.WriteAllText(path,"[0,0,1,0,1,0,3,4,1]");
    using(var f=new Launcher("")){
     Check(Box(f,"work").SelectedIndex==1,"Retain explicit manual choice after migration");
-    Box(f,"rtx").SelectedIndex=0;Box(f,"rtx").SelectedIndex=3;
-    Check(Box(f,"work").SelectedIndex==1,"Enabling VSR preserves the work-size choice");
+    Check(Box(f,"rtx").SelectedIndex==1,"Old VSR+HDR settings retain HDR");
+    Check(Box(f,"rtx").Items.Count==2&&Box(f,"work").Items.Count==3,"VSR modes removed");
+    Check(Box(f,"buffer").SelectedIndex==0,"Old schema marker must not turn buffering on");
    }
-   var e=new Engine(args[0]);e.LiveSourceResolution=true;e.LiveRtxMode=3;
-   Check(e.LiveArguments().Contains("--video-unscaled=downscale-big"),"Source mode must prevent enlargement");
-   e.LiveSourceResolution=false;Check(!e.LiveArguments().Any(x=>x.StartsWith("--video-unscaled")),"Manual modes retain their rendering path");
-   e.LiveSourceResolution=true;e.LiveRtxMode=2;Check(!e.LiveArguments().Any(x=>x.StartsWith("--video-unscaled")),"HDR without VSR must retain display-sized rendering");
-   Console.WriteLine("PASS: full-quality default, saved choices, VSR toggle, manual and HDR-only routing");return 0;
+   File.WriteAllText(path,"[0,0,1,0,3,0,1,4,1]");
+   using(var f=new Launcher("")){Check(Box(f,"work").SelectedIndex==0&&Box(f,"rtx").SelectedIndex==0,"Old VSR-only migrates to full-quality with HDR off");}
+   File.WriteAllText(path,"[0,0,1,0,0,0,1,4,3,2]");
+   using(var f=new Launcher("")){Check(Box(f,"buffer").SelectedIndex==3&&Box(f,"rtx").SelectedIndex==1,"New buffer settings persist");}
+   var e=new Engine(args[0]){LiveRtxMode=2,LiveBufferSeconds=20};
+   Check(e.LiveArguments().Contains("--d3d11-output-format=rgb10_a2"),"HDR needs RGB10");
+   Check(!e.LiveArguments(true).Any(x=>x.StartsWith("--cache-pause")),"Ordinary live arguments must not masquerade source caching as rendered buffering");
+   Console.WriteLine("PASS: defaults, migration, VSR removal, persisted buffering and HDR routing");return 0;
   }catch(Exception ex){Console.WriteLine(ex);return 1;}
   finally{if(original==null)File.Delete(path);else File.WriteAllText(path,original);}
  }

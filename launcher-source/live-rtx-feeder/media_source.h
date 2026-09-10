@@ -4,7 +4,7 @@ static UINT x{},y{},width{},height{},nativeWidth{},nativeHeight{},workWidth{},wo
 static bool useVsr=false;
 static bool active=false;
 static const wchar_t* Path(){static wchar_t path[32768]={};static bool read=false;if(!read){GetEnvironmentVariableW(L"DLSS_MEDIA_GEOMETRY",path,32768);read=true;}return path;}
-static bool Enabled(){return Path()[0]!=0;}
+static bool Enabled(){return false;} // Retired VSR-first geometry bridge.
 static bool Update(UINT bw,UINT bh){
  active=false;if(!Enabled())return false;
  static ULONGLONG next=0;static int w=0,h=0,l=0,t=0,cw=0,ch=0,nw=0,nh=0;

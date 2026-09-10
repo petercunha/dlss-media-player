@@ -24,6 +24,14 @@ Your option selections persist across launches. Submitted file paths and URLs ar
 
 RIFE can create artifacts around cuts, occlusions and fast motion. It requires preparation time, GPU resources and temporary disk space. The original file is unchanged. Temporary PNGs are processed in bounded chunks and removed as each chunk completes.
 
+## Render buffer and HDR
+
+VSR modes have been removed. **RTX Video HDR** remains an independent Off/HDR control; 100% full quality remains the default DLSS work size.
+
+For render-ahead playback, choose **5, 10, 20 or 30 seconds of enhanced frames** in Render Buffer. This renders short chunks with a persistent neural worker, queues completed enhanced video, and feeds it to MPV with live DLSS disabled. HDR is still applied at presentation. MPV waits for the selected amount of enhanced video and pauses/refills when needed. The log shows measured render speed relative to realtime.
+
+Use **Streamlink live** for livestream URLs. Buffered generic URLs download first. The queue has no seeking, uses temporary SDR encoded video, and resets neural history at chunk boundaries. A sustained rate below 1× will eventually require refilling; a larger buffer cannot cure that indefinitely. Fit player window uses source dimensions; other output choices set render bounds before playback. Temporary capture stops around 4 GB or when less than 1 GB disk space remains. Stop removes the session's temporary files.
+
 ## Export
 
 Choose Export enhanced MP4, then select a new destination filename. Offline URL jobs download the source first; Stream only is not used for offline jobs.

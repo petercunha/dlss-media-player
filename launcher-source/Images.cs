@@ -21,7 +21,7 @@ sealed partial class Engine {
    string job=Path.Combine(parent,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(job);
    string partial=Path.Combine(Path.GetDirectoryName(Path.GetFullPath(destination)),"."+Guid.NewGuid().ToString("N")+".partial.png");
    try{
-    LiveRtxMode=0;LiveSourceResolution=false;
+    LiveRtxMode=0;
     if(IsUrl(source)){Log("Downloading image…");string local=Path.Combine(job,"download.bin");await DownloadImage(source,local,token);source=local;}
     string normal=Path.Combine(job,"image.png"),padded=Path.Combine(job,"padded.png"),neural=Path.Combine(job,"neural.mp4");
     Log("1 / 4 · Reading image (first frame for animated images)…");

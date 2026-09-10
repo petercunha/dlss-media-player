@@ -72,7 +72,8 @@ template<class Source, class Evaluator, class Encoder, class Evidence, class Clo
 NeuralRenderResult RunJob(const NeuralRenderRequest& request,
                           OfflineNeuralRenderer::ProgressCallback progress,
                           std::stop_token stop, Source& source, Evaluator& evaluator,
-                          Encoder& encoder, Evidence evidenceProvider, Clock clock)
+                          Encoder& encoder, Evidence evidenceProvider, Clock clock,
+                          bool verifiedContinuation=false)
 {
     NeuralRenderResult result;
     if (request.sourcePath.empty() || request.stagingVideoPath.empty() ||
@@ -230,7 +231,11 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
                     attempt.failure=AttemptFailure::Neural;encoder.Cancel();return attempt;
                 }
                 temporalReset = false;
-                if (attempt.frames > 0) break;
+                // The same persistent feature/session has already passed the
+                // fresh-receipt check. Continue its per-call success/size checks;
+                // RenoDX's sparse logging must not require synthetic warm-up
+                // frames at every media chunk. Errors are still checked below.
+                if (attempt.frames > 0 || verifiedContinuation) break;
                 // The runtime logs successful evaluations sparsely. Capture the
                 // first source frame until a fresh receipt exists, retaining
                 // only its latest pixels for encoding. Each retry has its own
@@ -311,7 +316,7 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
     emit(NeuralRenderPhase::Validating,attempt.frames,attempt.bytes,false);
     result.evidence=ParseNeuralRuntimeEvidence(evidenceProvider());
     if(!result.evidence.Valid()||
-       result.evidence.highestObservedEvaluation<=successfulAttemptBaseline){
+       (!verifiedContinuation&&result.evidence.highestObservedEvaluation<=successfulAttemptBaseline)){
         result.detail=L"Feature 18 runtime evidence did not advance after captured rendering or contained a later failure.";
         return result;
     }
@@ -386,6 +391,7 @@ struct ProductionEvaluatorAdapter {
     TemporalGuideGenerator guides;
     uint32_t width{},height{};double fps{};bool forceReset{true};
     bool Initialize(HWND window,uint32_t w,uint32_t h,double rate){
+        if(renderer&&width==w&&height==h&&fps==rate){ResetTemporal();return true;}
         width=w;height=h;fps=rate;const auto [gridW,gridH]=TemporalGuideGenerator::AnalysisGrid(w,h,rate);
         renderer=MakeD3D12Renderer();
         if(!renderer||!renderer->Initialize(window,w,h,w,h,gridW,gridH,DefaultNeuralCarrierQuality()))return false;
@@ -533,9 +539,20 @@ NeuralRenderResult OfflineNeuralRenderer::Run(const NeuralRenderRequest& request
 #else
     const auto logPath=ModuleDirectory()/L"ReShade.log";std::error_code error;
     uintmax_t logOffset=std::filesystem::file_size(logPath,error);if(error)logOffset=0;
-    ProductionSourceAdapter source;ProductionEvaluatorAdapter evaluator;ProductionEncoderAdapter encoder;
-    return RunJob(request,std::move(progress),stop,source,evaluator,encoder,
+    static thread_local std::unique_ptr<ProductionEvaluatorAdapter> session;
+    ProductionSourceAdapter source;ProductionEvaluatorAdapter oneShot;ProductionEncoderAdapter encoder;
+    const bool continuation=request.reuseSession&&session!=nullptr;
+    if(request.reuseSession){
+        if(session&&(session->width!=request.width||session->height!=request.height||session->fps!=request.fps))
+            return NeuralRenderResult{.detail=L"Buffered source format changed. Restart playback to rebuild the render session."};
+        if(session)logOffset=0; // Include the existing feature's creation receipt.
+        else session=std::make_unique<ProductionEvaluatorAdapter>();
+    }
+    auto& evaluator=request.reuseSession?*session:oneShot;
+    auto result=RunJob(request,std::move(progress),stop,source,evaluator,encoder,
         [logPath,logOffset]{return ReadLogSegment(logPath,logOffset);},
-        []{return SteadyClock::now();});
+        []{return SteadyClock::now();},continuation);
+    if(request.reuseSession&&!result.ok)session.reset();
+    return result;
 #endif
 }

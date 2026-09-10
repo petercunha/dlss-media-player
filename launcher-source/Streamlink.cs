@@ -50,11 +50,12 @@ sealed partial class Engine {
         if(streams==null||streams.Count==0)throw new Exception("Streamlink found no playable streams. The channel may be offline.");
         string selected=SelectStreamlinkQuality(streams.Keys,quality);
         if(string.IsNullOrEmpty(selected))throw new Exception("Streamlink found no playable stream quality.");
+        if(LiveBufferSeconds>0)return await PlayBuffered(source,quality,token,selected);
         Log("Streamlink · selected "+selected+" · opening DLSS player");
         if(quality>0&&selected=="best")Log("No named resolution matched the quality cap; using the site's best available stream.");
         // Streamlink owns both the local HTTP transport and the player child process.
         // No stream URL/header is handed to a shell, saved to a file, or re-extracted by yt-dlp.
-        string playerArgs="--idle=no --keep-open=no --ytdl=no --force-window=immediate --input-terminal=no --video-sync=audio --interpolation=no --cache=yes --demuxer-max-bytes=128MiB --title=\"DLSS 5 - Streamlink\" --msg-level=all=warn,cplayer=info "+string.Join(" ",LiveArguments().Select(Quote));
+        string playerArgs="--idle=no --keep-open=no --ytdl=no --force-window=immediate --input-terminal=no --video-sync=audio --interpolation=no --cache=yes --demuxer-max-bytes=128MiB --title=\"DLSS 5 - Streamlink\" --msg-level=all=warn,cplayer=info "+string.Join(" ",LiveArguments(true).Select(Quote));
         var args=StreamlinkCommon();args.AddRange(new[]{"--loglevel","info","--player",Path.Combine(Root,"mpv.exe"),"--player-args",playerArgs,"--player-http","--player-verbose","--retry-open","2","--stream-timeout","60","--url="+source,"--default-stream="+selected});
         return await Run(exe,args,token,Log);
     }

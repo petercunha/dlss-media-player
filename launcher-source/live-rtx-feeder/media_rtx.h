@@ -7,7 +7,8 @@ using Microsoft::WRL::ComPtr;
 static const GUID VsrGuid={0xd43ce1b3,0x1f4b,0x48ac,{0xba,0xee,0xc3,0xc2,0x53,0x75,0xe6,0xf7}};
 static const GUID HdrGuid={0xfdd62bb4,0x620b,0x4fd7,{0x9a,0xb3,0x1e,0x59,0xd0,0xd5,0x44,0xb3}};
 static bool prePass=false;
-static int Mode(){static int mode=[] {char v[16]={};GetEnvironmentVariableA("DLSS_MEDIA_RTX",v,sizeof(v));return atoi(v)&3;}();return prePass?1:(MediaSource::Enabled()?(mode&2):mode);}
+static int Mode(){static int mode=[] {char v[16]={};GetEnvironmentVariableA("DLSS_MEDIA_RTX",v,sizeof(v));return atoi(v)&2;}();return mode;}
+static bool Prerendered(){static bool value=[] {char v[16]={};GetEnvironmentVariableA("DLSS_MEDIA_PRERENDERED",v,sizeof(v));return atoi(v)==1;}();return value;}
 static void Report(const char* format,...){
  char text[1024];va_list args;va_start(args,format);vsnprintf(text,sizeof(text),format,args);va_end(args);
  Log("%s",text);size_t n=strlen(text);if(n<sizeof(text)-2){text[n++]='\n';text[n]=0;}DWORD written=0;
@@ -104,23 +105,7 @@ static bool Process(ID3D11DeviceContext* ctx,ID3D11Texture2D* input,ID3D11Render
  if(!ok){s.failed=true;if(s.swap)s.swap->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);}
  return ok;
 }
-// Separate state for pre-DLSS SDR VSR and post-DLSS HDR. No CPU frame readback.
-static ID3D11ShaderResourceView* Prepare(ID3D11DeviceContext* ctx,ID3D11Texture2D* color){
- if(!MediaSource::useVsr)return nullptr;
- D3D11_TEXTURE2D_DESC d{},old{};color->GetDesc(&d);if(preCrop)preCrop->GetDesc(&old);
- if(!preCrop||old.Width!=MediaSource::width||old.Height!=MediaSource::height||old.Format!=d.Format||!preOutput){
-  pre=State{};preCrop.Reset();preOutput.Reset();preRtv.Reset();preSrv.Reset();
-  ComPtr<ID3D11Device> dev;ctx->GetDevice(&dev);
-  if(!Texture(dev.Get(),MediaSource::width,MediaSource::height,d.Format,D3D11_BIND_RENDER_TARGET,preCrop)||
-     !Texture(dev.Get(),MediaSource::workWidth,MediaSource::workHeight,DXGI_FORMAT_R8G8B8A8_UNORM,D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE,preOutput)||
-     FAILED(dev->CreateRenderTargetView(preOutput.Get(),nullptr,&preRtv))||FAILED(dev->CreateShaderResourceView(preOutput.Get(),nullptr,&preSrv)))return nullptr;
- }
- preOutput->GetDesc(&old);
- if(old.Width!=MediaSource::workWidth||old.Height!=MediaSource::workHeight){preOutput.Reset();return Prepare(ctx,color);}
- D3D11_BOX box={MediaSource::x,MediaSource::y,0,MediaSource::x+MediaSource::width,MediaSource::y+MediaSource::height,1};
- ctx->CopySubresourceRegion(preCrop.Get(),0,0,0,0,color,0,&box);
- std::swap(s,pre);prePass=true;bool ok=Process(ctx,preCrop.Get(),preRtv.Get());prePass=false;std::swap(s,pre);
- return ok?preSrv.Get():nullptr;
-}
+// Upstream feeder call site retained; the removed VSR pass cannot run.
+static ID3D11ShaderResourceView* Prepare(ID3D11DeviceContext*,ID3D11Texture2D*){return nullptr;}
 
 }

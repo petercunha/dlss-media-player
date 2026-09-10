@@ -40,10 +40,9 @@ sealed partial class Engine {
         var info = new ProcessStartInfo(exe,string.Join(" ",args.Select(Quote))) { WorkingDirectory=Root,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8 };
         info.EnvironmentVariables["PATH"] = Path.Combine(Root,"tools")+";"+Environment.GetEnvironmentVariable("PATH");
         // Child-scoped setting also reaches MPV launched by Streamlink.
-        info.EnvironmentVariables["DLSS_MEDIA_RTX"] = PreparedPlayback?"0":LiveRtxMode.ToString();
-        string geometry = !PreparedPlayback && LiveSourceResolution && (LiveRtxMode&1)!=0 ? Path.Combine(Path.GetTempPath(),"dlss-video-"+Guid.NewGuid().ToString("N")+".txt") : "";
-        info.EnvironmentVariables["DLSS_MEDIA_GEOMETRY"] = geometry;
-        try {
+        info.EnvironmentVariables["DLSS_MEDIA_RTX"] = PreparedPlayback?"0":(LiveRtxMode&2).ToString();
+        info.EnvironmentVariables["DLSS_MEDIA_GEOMETRY"] = "";
+        info.EnvironmentVariables["DLSS_MEDIA_PRERENDERED"] = BufferedPlayback&&string.Equals(Path.GetFileName(exe),"mpv.exe",StringComparison.OrdinalIgnoreCase)?"1":"0";
         using(var p = new Process { StartInfo=info }) {
             p.OutputDataReceived += (s,e)=> { if(e.Data!=null) output(e.Data); };
             p.ErrorDataReceived += (s,e)=> { if(e.Data!=null) output(e.Data); };
@@ -52,15 +51,15 @@ sealed partial class Engine {
                 await Task.Run(()=>p.WaitForExit()); token.ThrowIfCancellationRequested(); return p.ExitCode;
             }
         }
-        } finally { if(geometry.Length>0)try{File.Delete(geometry);}catch(IOException){} }
     }
     public async Task<int> Play(string input, bool url, int quality, CancellationToken token) {
+        if(LiveBufferSeconds>0&&!PreparedPlayback)return await PlayBuffered(input,quality,token);
         string player=PreparedPlayback?Path.Combine(Root,"tools","plain-player","mpv.exe"):Path.Combine(Root,"mpv.exe"); if(!File.Exists(player)) throw new FileNotFoundException("mpv.exe is missing.");
         var args=new List<string> { "--idle=no","--keep-open=no","--force-window=immediate","--input-terminal=no","--msg-level=all=warn,cplayer=info", "--title=DLSS 5 Player" };
         args.Add("--video-sync="+(SmoothPlayback?"display-resample":"audio"));
         args.Add("--interpolation="+(SmoothPlayback?"yes":"no"));
         if(SmoothPlayback) args.Add("--tscale=oversample");
-        if(!PreparedPlayback)args.AddRange(LiveArguments());
+        if(!PreparedPlayback)args.AddRange(LiveArguments(url));
         if(url) { args.Add("--ytdl=yes"); args.Add("--script-opts=ytdl_hook-ytdl_path="+Tool("yt-dlp")); args.Add("--ytdl-format="+Format(quality)); args.Add("--ytdl-raw-options=no-playlist=,ignore-config=,js-runtimes=deno"); args.Add("--cache=yes"); }
         else args.Add("--ytdl=no");
         args.Add("--"); args.Add(input);

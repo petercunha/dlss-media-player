@@ -6419,6 +6419,20 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
     auto *ctx = reinterpret_cast<ID3D11DeviceContext *>(cl->get_native());
     if (ctx == nullptr || ctx->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) return;
 
+    // Buffered video is already neural-rendered. Bypass every DLSS submission
+    // and apply only the optional HDR conversion to MPV's current backbuffer.
+    if(MediaRtx::Prerendered()) {
+        static bool reported=false;
+        if(!reported){MediaRtx::Report("[media-rtx] prerendered playback: live DLSS bypassed; HDR=%d",MediaRtx::Mode()!=0);reported=true;}
+        if(MediaRtx::Mode()) {
+            auto* output=reinterpret_cast<ID3D11RenderTargetView*>(rtv.handle);
+            Microsoft::WRL::ComPtr<ID3D11Resource> resource;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+            if(output){output->GetResource(&resource);if(SUCCEEDED(resource.As(&texture)))MediaRtx::Process(ctx,texture.Get(),output);}
+        }
+        return;
+    }
+
     if (ApplyPendingWorkResolution()) g.frame_ready = false;
     if ((g.frames_done % 60) == 0 && CfgReload()) g.frame_ready = false;
     if(MediaRtx::Mode())g_cfg.hdr=0;

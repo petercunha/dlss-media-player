@@ -47,6 +47,7 @@ struct NeuralRenderRequest {
     uint32_t height{};
     double fps{};
     double durationSeconds{};
+    bool reuseSession{}; // Sequential buffered-playback jobs on the same thread.
 };
 
 struct NeuralRenderProgress {
