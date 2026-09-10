@@ -53,12 +53,16 @@ sealed partial class Engine {
         }
     }
     public async Task<int> Play(string input, bool url, int quality, CancellationToken token) {
+        if(url&&!PreparedPlayback&&await CanStreamlinkHandle(input,token)){
+            Log("Automatically selected Streamlink for this URL.");
+            int streamCode=await PlayStreamlink(input,quality,token);
+            if(streamCode!=0)throw new Exception("Streamlink playback failed; see the activity log.");
+            return streamCode;
+        }
         if(LiveBufferSeconds>0&&!PreparedPlayback)return await PlayBuffered(input,quality,token);
         string player=PreparedPlayback?Path.Combine(Root,"tools","plain-player","mpv.exe"):Path.Combine(Root,"mpv.exe"); if(!File.Exists(player)) throw new FileNotFoundException("mpv.exe is missing.");
         var args=new List<string> { "--idle=no","--keep-open=no","--force-window=immediate","--input-terminal=no","--msg-level=all=warn,cplayer=info", "--title=DLSS 5 Player" };
-        args.Add("--video-sync="+(SmoothPlayback?"display-resample":"audio"));
-        args.Add("--interpolation="+(SmoothPlayback?"yes":"no"));
-        if(SmoothPlayback) args.Add("--tscale=oversample");
+        args.AddRange(MotionArguments());
         if(!PreparedPlayback)args.AddRange(LiveArguments(url));
         if(url) { args.Add("--ytdl=yes"); args.Add("--script-opts=ytdl_hook-ytdl_path="+Tool("yt-dlp")); args.Add("--ytdl-format="+Format(quality)); args.Add("--ytdl-raw-options=no-playlist=,ignore-config=,js-runtimes=deno"); args.Add("--cache=yes"); }
         else args.Add("--ytdl=no");

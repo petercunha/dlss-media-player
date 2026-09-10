@@ -59,6 +59,7 @@ public:
                              CapturedVideoFrame& capture);
 
     void SetDLSS(bool enabled) { m_dlssEnabled = enabled; }
+    void SetSyntheticJitter(bool enabled) { m_syntheticJitter = enabled; }
     bool DLSSAvailable() const { return m_dlss.Available(); }
     bool DLSSEnabled() const { return m_dlssEnabled && m_dlss.Available(); }
     bool DLSSRequested() const { return m_dlssEnabled; }
@@ -81,6 +82,7 @@ public:
     const ColorSettings& GetColorSettings() const { return m_colorSettings; }
 
 private:
+    bool m_syntheticJitter=true;
     friend struct D3D12RendererDeleter;
     ~D3D12Renderer();
     static constexpr uint32_t FrameCount = 3;

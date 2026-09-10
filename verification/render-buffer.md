@@ -34,3 +34,16 @@ These are short single-run observations, not controlled benchmark averages. Anot
 - Forced termination of an early failed test left a diagnostic cache directory in the isolated test workspace. Successful/cancelled runs removed their own directories; forced process termination is not equivalent to Stop.
 
 Reproducible harnesses: `BufferedPlaybackTests.cs`, `RenderRefillTests.cs`, `SourceModeTests.cs`, and `ImageTests.cs`. Test media and raw machine logs remain outside Git.
+
+## September 9 follow-up: automatic routing and temporal stability
+
+- Live playback now detects Twitch and installed Streamlink plugins automatically, before buffered URL downloading. UI routing rejects lookalike Twitch hosts and keeps display smoothing available. AutoRoutingTests passed.
+- An actual buffered run of the supplied Twitch channel succeeded at 720p60 with a five-second target buffer: retained neural worker, enhanced output, audio, RTX HDR and MPV reporting interpolation=yes and display-sync-active=yes. Cancellation cleaned up. A later unbuffered check found the channel unavailable; that check verified the Streamlink error path, not unbuffered playback.
+- A synthetic 300-frame 640x360/30 fps moving fixture embeds pixel frame IDs. BufferedOrderTests captured two enhanced segments. Pixel IDs were exactly 0 through 299, with no duplicates/skips; decoded timestamps advanced 0.033333–0.033334 seconds across the boundary. This checks ordering and cadence, not absence of perceptual artifacts. The marker decoder deliberately tolerates dim neural ghosting.
+- Persistent video mode disables synthetic camera jitter and uses a flat depth guide. Verified consecutive chunks retain neural history; detected scene cuts reset NGX history. Software retry starts a fresh verification baseline. Segment offsets and lengths use rendered frame counts, avoiding cumulative AAC duration padding.
+- MPV display smoothing options now come from the same function for normal, Streamlink and buffered playback. config/playback-state.lua logs actual active display synchronization. Normal live playback already retained its renderer; this revision does not replace that renderer.
+- NeuralPrerenderTests passed. Native worker shutdown now pumps window messages through actual worker-thread termination, including thread-local GPU teardown.
+
+These findings supersede the earlier unavailable-channel and per-chunk-history-reset limitations above. Buffered guide generation remains different from live rendering; identical visual quality and complete elimination of warping are not established.
+
+To repeat the frame-order check, run tests/order-fixture.py with the player root and a scratch directory; run BufferedOrderTests with player root, generated order-source.mp4 and an empty capture directory; then run tests/check-frame-order.py with player root and captured joined.ts. The Python tools require NumPy and Pillow. Compile the C# harnesses alongside launcher-source/*.cs, choosing the harness class as /main. No test media or stream captures are committed.

@@ -30,7 +30,7 @@ VSR modes have been removed. **RTX Video HDR** remains an independent Off/HDR co
 
 For render-ahead playback, choose **5, 10, 20 or 30 seconds of enhanced frames** in Render Buffer. This renders short chunks with a persistent neural worker, queues completed enhanced video, and feeds it to MPV with live DLSS disabled. HDR is still applied at presentation. MPV waits for the selected amount of enhanced video and pauses/refills when needed. The log shows measured render speed relative to realtime.
 
-Use **Streamlink live** for livestream URLs. Buffered generic URLs download first. The queue has no seeking, uses temporary SDR encoded video, and resets neural history at chunk boundaries. A sustained rate below 1× will eventually require refilling; a larger buffer cannot cure that indefinitely. Fit player window uses source dimensions; other output choices set render bounds before playback. Temporary capture stops around 4 GB or when less than 1 GB disk space remains. Stop removes the session's temporary files.
+Live playback automatically routes Twitch and other recognized URLs through Streamlink, including with buffering enabled. Other buffered URLs download first. The queue has no seeking and uses temporary SDR encoded video. Neural history persists across consecutive chunks and resets at detected scene cuts. A sustained rate below 1× will eventually require refilling; a larger buffer cannot cure that indefinitely. Fit player window uses source dimensions; other output choices set render bounds before playback. Temporary capture stops around 4 GB or when less than 1 GB disk space remains. Stop removes the session's temporary files.
 
 ## Export
 
@@ -57,7 +57,7 @@ Auto streams through MPV + yt-dlp and downloads first if the player exits with a
 
 ### Streamlink live
 
-Choose **Streamlink live** in Action, paste a supported channel or protocol URL, choose the source quality and DLSS work size, then Start. Streamlink feeds the bundled DLSS-enabled MPV over local HTTP. Twitch and other Streamlink plugins use this same route. RIFE, Prepare and Export do not apply to this mode. Stop cancels Streamlink and its player; closing the player also ends the stream.
+Choose **Live playback** and paste a supported channel URL; Streamlink is selected automatically when its plugin recognizes the URL. For explicit selection or Streamlink protocol URLs, choose **Streamlink live**. Choose source quality and DLSS work size, then Start. Streamlink feeds the bundled DLSS-enabled MPV over local HTTP. Twitch and other Streamlink plugins use this same route. RIFE, Prepare and Export do not apply to this mode. Stop cancels Streamlink and its player; closing the player also ends the stream.
 
 Streamlink 8.4.0 is bundled. Optional site-specific settings can be placed in `streamlink.conf` beside the launcher; system Streamlink configuration is otherwise ignored. Authentication, offline channels and site restrictions can still prevent playback. Quality caps prefer the highest available named resolution and frame rate, falling back to best when the site has no matching named resolution.
 

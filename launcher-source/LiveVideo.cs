@@ -2,6 +2,10 @@ using System;using System.Collections.Generic;
 sealed partial class Engine {
     public int LiveBufferSeconds,LiveWorkPercent=100,LiveDisplayWidth=3840,LiveDisplayHeight=2160;
     public bool BufferedPlayback;
+    public IEnumerable<string> MotionArguments(){
+        var args=new List<string>(SmoothPlayback?new[]{"--video-sync=display-resample","--interpolation=yes","--tscale=oversample"}:new[]{"--video-sync=audio","--interpolation=no"});
+        string script=System.IO.Path.Combine(Root,"config","playback-state.lua");if(System.IO.File.Exists(script))args.Add("--script="+script);return args;
+    }
     public IEnumerable<string> LiveArguments(bool networkStream=false){
         var args=new List<string>();
         if(LiveTarget==4){args.Add("--fullscreen=yes");args.Add("--screen="+LiveScreen);args.Add("--fs-screen="+LiveScreen);Log("Live output: display resolution, fullscreen. Press F to return to a window.");}

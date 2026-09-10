@@ -301,8 +301,8 @@ bool D3D12Renderer::RenderFrame(const uint8_t*bgra,size_t bytes,const float*guid
     // One temporal jitter sample drives BOTH the color reconstruction input and the
     // spatial lookup of all guide buffers.  The motion-vector VALUES themselves remain
     // unjittered (hence no MVJittered create flag), matching the standard DLSS contract.
-    const float jitterX=DLSSEnabled()?Halton(uint32_t(m_framesPresented%1024)+1,2)-0.5f:0.0f;
-    const float jitterY=DLSSEnabled()?Halton(uint32_t(m_framesPresented%1024)+1,3)-0.5f:0.0f;
+    const float jitterX=DLSSEnabled()&&m_syntheticJitter?Halton(uint32_t(m_framesPresented%1024)+1,2)-0.5f:0.0f;
+    const float jitterY=DLSSEnabled()&&m_syntheticJitter?Halton(uint32_t(m_framesPresented%1024)+1,3)-0.5f:0.0f;
     const float jitterUVX=jitterX/float(m_renderW), jitterUVY=jitterY/float(m_renderH);
 
     // GPU-expand the compact CPU optical-flow/mask analysis to exact DLSS input

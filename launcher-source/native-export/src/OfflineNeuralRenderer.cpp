@@ -174,13 +174,13 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
     result.feature18ArmedBeforeCapture=true;
     uint64_t successfulAttemptBaseline=armedEvidence.highestObservedEvaluation;
 
-    auto reopenFromZero = [&] {
+    auto reopenFromZero = [&](bool preserveHistory=false) {
         source.Close();
         if (!source.Open(request.sourcePath, stop)) return false;
-        evaluator.ResetTemporal();
+        if(!preserveHistory)evaluator.ResetTemporal();
         return true;
     };
-    if (!reopenFromZero()) {
+    if (!reopenFromZero(verifiedContinuation)) {
         if (stop.stop_requested()) return cancelled(L"Neural render was cancelled.");
         result.detail = L"The source could not be restarted from frame zero.";return result;
     }
@@ -195,7 +195,7 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
                 ? AttemptFailure::Cancelled : AttemptFailure::Encoder;
             attempt.encoderError = startError;return attempt;
         }
-        bool temporalReset = true;
+        bool temporalReset = !verifiedContinuation;
         for (;;) {
             if (stop.stop_requested()) {
                 attempt.failure = AttemptFailure::Cancelled;attempt.encoderError=EncodeError::Cancelled;
@@ -297,6 +297,7 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
             return result;
         }
         successfulAttemptBaseline=retryEvidence.highestObservedEvaluation;
+        verifiedContinuation=false; // Retrying from zero is a real discontinuity.
         selected=EncoderKind::H264Software;
         attempt=runAttempt(selected);
     }
@@ -389,17 +390,24 @@ struct ProductionSourceAdapter {
 struct ProductionEvaluatorAdapter {
     D3D12RendererOwner renderer;uint64_t successfulEvaluations{};
     TemporalGuideGenerator guides;
-    uint32_t width{},height{};double fps{};bool forceReset{true};
+    uint32_t width{},height{};double fps{};bool forceReset{true},stableVideo{false};
     bool Initialize(HWND window,uint32_t w,uint32_t h,double rate){
-        if(renderer&&width==w&&height==h&&fps==rate){ResetTemporal();return true;}
+        if(renderer&&width==w&&height==h&&fps==rate)return true;
         width=w;height=h;fps=rate;const auto [gridW,gridH]=TemporalGuideGenerator::AnalysisGrid(w,h,rate);
         renderer=MakeD3D12Renderer();
         if(!renderer||!renderer->Initialize(window,w,h,w,h,gridW,gridH,DefaultNeuralCarrierQuality()))return false;
-        renderer->SetDLSS(true);return true;
+        renderer->SetDLSS(true);
+        // Decoded video has no genuine jittered samples or geometry depth.
+        // Match the unjittered live DLAA path; don't invent moving depth from
+        // image gradients/flow, which can make neural video geometry breathe.
+        renderer->SetSyntheticJitter(!stableVideo);
+        if(stableVideo)guides.SetDepthMode(TemporalGuideGenerator::DepthMode::Flat);
+        return true;
     }
     bool Submit(const JobFrame& frame,bool reset,bool capture,std::vector<uint8_t>& output){
-        GuideFrame guide;const bool temporalReset=forceReset||reset;forceReset=false;
+        GuideFrame guide;bool temporalReset=forceReset||reset;forceReset=false;
         if(!guides.Generate(frame.bgra.data(),width,height,width,height,fps,temporalReset,guide))return false;
+        temporalReset=temporalReset||!guide.hasHistory; // Propagate detected cuts to NGX, not only the guide field.
         const float frameMs=static_cast<float>(1000.0/fps);
         if(!capture){const bool ok=renderer->RenderFrame(frame.bgra.data(),frame.bgra.size(),
             guide.guideGridRGBA32F.data(),guide.guideGridRGBA32F.size()*sizeof(float),
@@ -549,6 +557,7 @@ NeuralRenderResult OfflineNeuralRenderer::Run(const NeuralRenderRequest& request
         else session=std::make_unique<ProductionEvaluatorAdapter>();
     }
     auto& evaluator=request.reuseSession?*session:oneShot;
+    evaluator.stableVideo=request.reuseSession;
     auto result=RunJob(request,std::move(progress),stop,source,evaluator,encoder,
         [logPath,logOffset]{return ReadLogSegment(logPath,logOffset);},
         []{return SteadyClock::now();},continuation);

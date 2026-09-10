@@ -4,15 +4,15 @@ Windows media player for local videos, URLs, online videos, and live streams, wi
 
 ## Screenshots
 
-| Launcher | Render buffer choices |
+| Live playback | Export with RIFE |
 | --- | --- |
-| [![Live playback controls with DLSS, HDR and rendered-frame buffering](docs/images/launcher-buffer.jpg)](docs/images/launcher-buffer.jpg) | [![Completed-frame buffer choices](docs/images/buffer-options.jpg)](docs/images/buffer-options.jpg) |
+| [![Live playback controls](docs/images/launcher-live.jpg)](docs/images/launcher-live.jpg) | [![Export controls with RIFE frame generation](docs/images/launcher-export.jpg)](docs/images/launcher-export.jpg) |
 
-Click either screenshot for the full-size view. Live playback offers HDR and optional render-ahead buffering; offline export offers optional RIFE frame generation and a separate export size.
+Click either screenshot for the full-size view. These original screenshots show the earlier interface; the current version retains HDR, removes VSR modes, and adds render buffering.
 
 ## Live playback
 
-Open `DLSS-Media-Launcher.exe`. Select **Live playback** for a file or yt-dlp URL, or **Streamlink live** for Twitch and other Streamlink-supported sites.
+Open `DLSS-Media-Launcher.exe`. Select **Live playback** for a file or URL. Twitch and other URLs recognized by an installed Streamlink plugin automatically use Streamlink. **Streamlink live** also allows explicit selection and Streamlink protocol URLs.
 
 - **Live Output Size**: fit the window, fit within 1080p/1440p/2160p, or **Display · fullscreen**. Press F to return to a window. Aspect ratio is preserved. Fixed fit sizes are window bounds, not encoded dimensions.
 - **RTX Video HDR**: Off or HDR. VSR modes have been removed. HDR requires Windows HDR on the playback display.
@@ -32,11 +32,13 @@ MPV receives encoded frames that have already been enhanced. Its live DLSS pass 
 
 The worker retains its GPU device/model between chunks. The activity log reports chunk throughput as a multiple of realtime: **1.5×** can gain buffer, **0.7×** will eventually need another refill. Task Manager's overall GPU percentage does not measure the latency of the pipeline's GPU waits. Buffering absorbs temporary stalls; it cannot guarantee continuous playback when sustained rendering is slower than the source.
 
-Files are read ahead in bounded chunks. For Twitch and other live services, choose **Streamlink live**. Generic yt-dlp URLs download first in buffered mode. Source URLs, authentication and site restrictions remain subject to Streamlink/yt-dlp support.
+Files are read ahead in bounded chunks. Recognized Streamlink URLs use live capture automatically, including with buffering enabled. Other yt-dlp URLs download first in buffered mode. Source URLs, authentication and site restrictions remain subject to Streamlink/yt-dlp support.
 
 At 100%, the source is conventionally scaled to the selected output bounds **before** neural enhancement, preserving aspect ratio. At 75%/50%, neural work uses smaller dimensions and the enhanced result is spatially resized to the output bounds. Fit player window uses source dimensions in buffered mode; changing the window does not rerender cached frames. These are neural enhancement paths, not a claim of native DLSS Super Resolution.
 
-Tradeoffs: startup delay, temporary NVENC encoding/decoding, SDR 8-bit cached video, and temporal resets at chunk boundaries. HDR runs during presentation and is not cached; stalls caused by HDR/display processing can still occur. Seeking, subtitles, additional audio tracks and source format changes are not supported by this experimental queue. Use normal playback for HDR sources. A format change requires restarting buffered playback. Live capture cuts at keyframes, so actual buffer duration can exceed the selection.
+The buffered worker preserves neural history across consecutive chunks, resets history at detected scene cuts, and disables synthetic camera jitter with a flat depth guide. Segment timing uses rendered frame counts rather than audio-padded container durations. Normal and buffered playback share MPV display-smoothing options. Normal playback already keeps its neural renderer loaded between frames.
+
+Tradeoffs: startup delay, temporary NVENC encoding/decoding and SDR 8-bit cached video. The buffered renderer still uses a different guide-generation path from normal live playback; visual parity and elimination of temporal warping are not established. HDR runs during presentation and is not cached; stalls caused by HDR/display processing can still occur. Seeking, subtitles, additional audio tracks and source format changes are not supported by this experimental queue. Use normal playback for HDR sources. A format change requires restarting buffered playback. Live capture cuts at keyframes, so actual buffer duration can exceed the selection.
 
 Temporary files live in `Cache/playback` and are deleted on normal completion/Stop. Rendering and completed-output queues are bounded; capture stops at approximately 4 GB of temporary data or below 1 GB free disk space. Forced termination can leave a cache directory. One offline/buffered neural job runs at a time.
 

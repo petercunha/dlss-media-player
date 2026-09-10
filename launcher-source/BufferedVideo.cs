@@ -16,6 +16,7 @@ sealed partial class Engine {
     const int RenderChunkSeconds=4;
     sealed class RenderChunk {public string Path;public double Duration;}
     public async Task<int> PlayBuffered(string source,int quality,CancellationToken caller,string streamlinkQuality=null){
+        if(streamlinkQuality==null&&IsTwitchUrl(source)){Log("Automatically selected Streamlink for Twitch.");return await PlayStreamlink(source,quality,caller);}
         using(var gate=new Semaphore(1,1,"Local\\DLSSMediaOfflineExport")){
             if(!gate.WaitOne(0))throw new Exception("Another neural render is running. Stop it before starting buffered playback.");
             try{return await BufferedCore(source,quality,caller,streamlinkQuality);}finally{gate.Release();}
@@ -66,7 +67,7 @@ sealed partial class Engine {
                 using(token.Register(()=>prefilled.TrySetCanceled()))await prefilled.Task;
                 token.ThrowIfCancellationRequested();BufferedPlayback=true;
                 var args=new List<string>{"--idle=no","--keep-open=no","--ytdl=no","--input-terminal=no","--force-window=immediate","--title=DLSS 5 - Render buffer","--msg-level=all=warn,cplayer=info","--cache=yes","--cache-pause=yes","--cache-pause-initial=yes","--cache-pause-wait="+seconds,"--cache-secs="+(seconds+4),"--demuxer-readahead-secs="+(seconds+4),"--demuxer-max-bytes=256MiB","--demuxer-seekable-cache=no","--force-seekable=no","--video-sync="+(SmoothPlayback?"display-resample":"audio"),"--interpolation="+(SmoothPlayback?"yes":"no")};
-                if(SmoothPlayback)args.Add("--tscale=oversample");
+                args.RemoveAll(x=>x.StartsWith("--video-sync=")||x.StartsWith("--interpolation="));args.AddRange(MotionArguments());
                 args.AddRange(LiveArguments());args.Add("--");args.Add("http://127.0.0.1:"+port+"/enhanced.ts");
                 Log("Render buffer ready. MPV pauses and refills from enhanced output if rendering falls behind.");
                 code=await Run(Path.Combine(Root,"mpv.exe"),args,token,Log);
@@ -135,18 +136,22 @@ sealed partial class Engine {
         if(File.Exists(neural))File.Delete(neural);
         int code=await session.Render(new[]{input,neural,workW.ToString(),workH.ToString(),Num(info.Fps),Num(info.Duration)});
         if(code!=0||!File.Exists(neural))throw new Exception("Buffered DLSS rendering failed to verify neural output.");
+        // Use the verified CFR frame clock. Container duration includes AAC
+        // priming/tail padding and must not accumulate at every chunk boundary.
+        double videoDuration=session.LastFrameCount/info.Fps;
         var mux=new List<string>{"-i",neural,"-i",source,"-map","0:v:0","-map","1:a:0?"};
         if(workW!=width||workH!=height)mux.AddRange(new[]{"-vf","scale="+width+":"+height+":flags=lanczos"});
-        mux.AddRange(new[]{"-c:v","h264_nvenc","-preset","p1","-cq","18","-b:v","0","-pix_fmt","yuv420p","-g",Math.Max(1,(int)Math.Round(info.Fps)).ToString(),"-bf","0","-c:a","aac","-b:a","192k","-t",Num(info.Duration),"-output_ts_offset",Num(offset),"-mpegts_copyts","1","-mpegts_flags","+initial_discontinuity","-muxdelay","0","-f","mpegts",result});
+        mux.AddRange(new[]{"-c:v","h264_nvenc","-preset","p1","-cq","18","-b:v","0","-pix_fmt","yuv420p","-g",Math.Max(1,(int)Math.Round(info.Fps)).ToString(),"-bf","0","-fps_mode","passthrough","-c:a","aac","-b:a","192k","-af","aresample=async=1:first_pts=0,apad","-t",Num(videoDuration),"-avoid_negative_ts","disabled","-output_ts_offset",Num(offset),"-mpegts_copyts","1","-mpegts_flags","+initial_discontinuity","-muxdelay","0","-f","mpegts",result});
         await Ffmpeg(mux,token);var check=await Probe(result,token);
         if(Math.Abs(check.Duration-info.Duration)>Math.Max(.3,3/info.Fps))throw new Exception("Buffered segment timing verification failed.");
         File.Delete(neural);if(File.Exists(normalized))File.Delete(normalized);
-        Log("Render buffer · chunk "+(index+1)+" · "+Num(info.Duration)+"s ready · "+(info.Duration/timer.Elapsed.TotalSeconds).ToString("0.00",Invariant)+"× realtime · "+workW+"×"+workH+" DLSS");
-        return new RenderChunk{Path=result,Duration=info.Duration};
+        Log("Render buffer · chunk "+(index+1)+" · "+Num(videoDuration)+"s ready · "+(videoDuration/timer.Elapsed.TotalSeconds).ToString("0.00",Invariant)+"× realtime · "+workW+"×"+workH+" DLSS");
+        return new RenderChunk{Path=result,Duration=videoDuration};
     }
     // Keep the neural device/model alive between chunks. Recreating it per chunk
     // otherwise dominates short-buffer throughput. Requests are strictly serial.
     sealed class BufferedNeuralSession:IDisposable {
+        public long LastFrameCount {get;private set;}
         readonly Process process;readonly CancellationToken token;readonly CancellationTokenRegistration cancellation;
         readonly object sync=new object();TaskCompletionSource<int> pending;
         public BufferedNeuralSession(Engine engine,CancellationToken stop){
@@ -159,7 +164,8 @@ sealed partial class Engine {
             process.OutputDataReceived+=(s,e)=>{if(e.Data==null)return;
                 if(e.Data.StartsWith("DLSS_BATCH_DONE ")){
                     string[] fields=e.Data.Split(' ');int code;long frames,verified;
-                    bool valid=fields.Length==4&&int.TryParse(fields[1],out code)&&code==0&&long.TryParse(fields[2],out frames)&&long.TryParse(fields[3],out verified)&&frames>0&&frames==verified;
+                    frames=0;bool valid=fields.Length==4&&int.TryParse(fields[1],out code)&&code==0&&long.TryParse(fields[2],out frames)&&long.TryParse(fields[3],out verified)&&frames>0&&frames==verified;
+                    LastFrameCount=valid?frames:0;
                     lock(sync){if(pending!=null)pending.TrySetResult(valid?0:1);}
                     engine.Log(e.Data);
                 }else if(!e.Data.StartsWith("DLSS frames"))engine.Log(e.Data);

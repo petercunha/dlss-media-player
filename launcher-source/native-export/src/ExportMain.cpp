@@ -34,7 +34,10 @@ int wmain(int argc,wchar_t** argv) {
    if(batch){std::cout<<"DLSS_BATCH_DONE "<<(result.ok?0:1)<<" "<<result.frameCount<<" "<<result.verifiedNeuralFrames<<std::endl;if(!result.ok){std::wcerr<<result.detail<<std::endl;break;}}
   }while(batch);
  }catch(const std::exception& e){std::cerr<<e.what()<<std::endl;}SetEvent(done);});
- while(MsgWaitForMultipleObjects(1,&done,FALSE,50,QS_ALLINPUT)!=WAIT_OBJECT_0){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}}
+ // Keep pumping while thread-local GPU/session destructors run too. The body
+ // completion event is earlier than actual thread termination.
+ HANDLE workerHandle=worker.native_handle();
+ while(MsgWaitForMultipleObjects(1,&workerHandle,FALSE,50,QS_ALLINPUT)!=WAIT_OBJECT_0){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}}
  worker.join();CloseHandle(done);DestroyWindow(window);MFShutdown();CoUninitialize();
  std::wcout<<L"Neural result: "<<result.detail<<L"; frames="<<result.frameCount<<L"; verified="<<result.verifiedNeuralFrames<<std::endl;
  return result.ok?0:1;

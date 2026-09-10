@@ -9,6 +9,17 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
 sealed partial class Engine {
+    public static bool IsTwitchUrl(string source){
+        Uri uri;return IsUrl(source)&&Uri.TryCreate(source,UriKind.Absolute,out uri)&&(uri.Host.Equals("twitch.tv",StringComparison.OrdinalIgnoreCase)||uri.Host.EndsWith(".twitch.tv",StringComparison.OrdinalIgnoreCase));
+    }
+    public async Task<bool> CanStreamlinkHandle(string source,CancellationToken token){
+        if(IsTwitchUrl(source))return true;
+        if(!IsUrl(source))return false;
+        string exe=Path.Combine(Root,"tools","streamlink","bin","streamlink.exe");
+        if(!File.Exists(exe))return false;
+        var args=StreamlinkCommon();args.AddRange(new[]{"--loglevel","error","--can-handle-url-no-redirect",source});
+        return await Run(exe,args,token,delegate{})==0;
+    }
     public static bool IsStreamlinkInput(string source) {
         return !string.IsNullOrWhiteSpace(source) && source.Length<=8192 && !source.Any(char.IsControl)
             && !source.StartsWith("-") && !source.StartsWith("file:",StringComparison.OrdinalIgnoreCase)
@@ -55,7 +66,7 @@ sealed partial class Engine {
         if(quality>0&&selected=="best")Log("No named resolution matched the quality cap; using the site's best available stream.");
         // Streamlink owns both the local HTTP transport and the player child process.
         // No stream URL/header is handed to a shell, saved to a file, or re-extracted by yt-dlp.
-        string playerArgs="--idle=no --keep-open=no --ytdl=no --force-window=immediate --input-terminal=no --video-sync=audio --interpolation=no --cache=yes --demuxer-max-bytes=128MiB --title=\"DLSS 5 - Streamlink\" --msg-level=all=warn,cplayer=info "+string.Join(" ",LiveArguments(true).Select(Quote));
+        string playerArgs="--idle=no --keep-open=no --ytdl=no --force-window=immediate --input-terminal=no "+string.Join(" ",MotionArguments().Select(Quote))+" --cache=yes --demuxer-max-bytes=128MiB --title=\"DLSS 5 - Streamlink\" --msg-level=all=warn,cplayer=info "+string.Join(" ",LiveArguments(true).Select(Quote));
         var args=StreamlinkCommon();args.AddRange(new[]{"--loglevel","info","--player",Path.Combine(Root,"mpv.exe"),"--player-args",playerArgs,"--player-http","--player-verbose","--retry-open","2","--stream-timeout","60","--url="+source,"--default-stream="+selected});
         return await Run(exe,args,token,Log);
     }
