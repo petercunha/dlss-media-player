@@ -47,6 +47,7 @@ sealed partial class Engine {
             Task capture=null,prepare=null,render=null,package=null,serve=null,watch=null;Exception caught=null;int code=0;
             try{
                 Log("Render buffer: preparing "+seconds+" seconds of completed DLSS frames in Cache/playback.");
+                Log("Buffered motion: independent-frame DLSS enhancement; temporal reconstruction disabled, GPU/model retained. Display smoothing runs in MPV.");
                 SyncNeuralSettings();
                 capture=Task.Run(async()=>{try{
                     if(streamlinkQuality==null)await CaptureFile(source,job,raw,token);

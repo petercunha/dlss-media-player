@@ -36,3 +36,7 @@ The renderer still synchronously waits for each evaluated frame's GPU readback. 
 - Exact decoded pixel IDs 0–299 and 33.333/33.334 ms timestamp steps passed across the remuxed chunk boundary; no test tolerance was relaxed.
 - LivePerformanceTests exercises four chunks, automatic Streamlink routing, active MPV smoothing, HDR and cancellation. It now asserts that no new cache directory remains.
 - Test captures, binaries and raw machine logs are excluded from Git.
+
+## Subsequent motion-stability correction
+
+The performance measurements above used temporal reconstruction. The subsequent buffered-motion fix resets neural history on each output frame while retaining the GPU/model session. This trades neural temporal accumulation for stable geometry; those earlier throughput figures are not benchmarks of the corrected mode. See buffered-motion.md.

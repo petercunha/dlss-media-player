@@ -414,7 +414,11 @@ struct ProductionEvaluatorAdapter {
     }
     bool Submit(const JobFrame& frame,bool reset,bool capture,std::vector<uint8_t>& output){
         const auto started=SteadyClock::now();
-        GuideFrame guide;bool temporalReset=forceReset||reset;forceReset=false;
+        // Estimated video flow is not reliable enough for cross-frame neural
+        // reconstruction: even a confidence mask left visible trails in motion
+        // tests. Buffered mode evaluates each source frame independently while
+        // retaining the GPU/model session (no feature recreation).
+        GuideFrame guide;bool temporalReset=forceReset||reset||stableVideo;forceReset=false;
         if(!guides.Generate(frame.bgra.data(),width,height,width,height,fps,temporalReset,guide))return false;
         temporalReset=temporalReset||!guide.hasHistory; // Propagate detected cuts to NGX, not only the guide field.
         const auto prepared=SteadyClock::now();
