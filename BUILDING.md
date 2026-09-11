@@ -45,7 +45,7 @@ RIFE explicitly selects Vulkan GPU 0, verified as the RTX 5070 Ti on the origina
 
 ## Integration tests
 
-Compile a test from `tests/` with all eight top-level launcher `.cs` files (including `Images.cs`, `BufferedVideo.cs` and `BufferedVod.cs`), `/target:exe /main:<test class>`, and the same assembly references as build.ps1.
+Compile a test from `tests/` with all seven top-level launcher `.cs` files (including `Images.cs` and `BufferedVideo.cs`), `/target:exe /main:<test class>`, and the same assembly references as build.ps1.
 
 - ExportRegressionTests: player root, synthetic source path, new destination, and `off`, `rife`, or `cancel`.
 - LiveRtxTests: player root, local SDR path or live HTTPS URL, and output target index (4 = fullscreen). Its HDR assertions require Windows HDR enabled.

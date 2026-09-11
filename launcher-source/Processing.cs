@@ -19,11 +19,9 @@ sealed partial class Engine {
         var lines=File.Exists(p)?File.ReadAllLines(p).ToList():new List<string>();
         lines.RemoveAll(l=>l.TrimStart().StartsWith("work_resolution=")); lines.Add("work_resolution="+percent); File.WriteAllLines(p,lines);
     }
-    public async Task<VideoInfo> Probe(string file,CancellationToken token,IEnumerable<string> inputOptions=null) {
+    public async Task<VideoInfo> Probe(string file,CancellationToken token) {
         var output=new StringBuilder();
-        var probeArgs=new List<string>{"-v","error","-select_streams","v:0","-show_entries","stream=width,height,avg_frame_rate:stream_side_data=rotation:format=duration","-of","json"};
-        if(inputOptions!=null)probeArgs.AddRange(inputOptions);probeArgs.Add(file);
-        int code=await Run(Tool("ffprobe"),probeArgs,token,l=>output.AppendLine(l));
+        int code=await Run(Tool("ffprobe"),new[]{"-v","error","-select_streams","v:0","-show_entries","stream=width,height,avg_frame_rate:stream_side_data=rotation:format=duration","-of","json",file},token,l=>output.AppendLine(l));
         if(code!=0) throw new Exception("Unable to read video information.");
         var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(output.ToString());
         var streams=(System.Collections.ArrayList)data["streams"]; if(streams.Count==0) throw new Exception("No video track found.");

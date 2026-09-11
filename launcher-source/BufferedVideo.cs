@@ -23,10 +23,14 @@ sealed partial class Engine {
         if(streamlinkQuality==null&&IsTwitchUrl(source)){Log("Automatically selected Streamlink for Twitch.");return await PlayStreamlink(source,quality,caller);}
         using(var gate=new Semaphore(1,1,"Local\\DLSSMediaOfflineExport")){
             if(!gate.WaitOne(0))throw new Exception("Another neural render is running. Stop it before starting buffered playback.");
-            try{return streamlinkQuality==null?await BufferedVod(source,quality,caller):await BufferedCore(source,quality,caller,streamlinkQuality);}finally{gate.Release();}
+            try{return await BufferedCore(source,quality,caller,streamlinkQuality);}finally{gate.Release();}
         }
     }
     async Task<int> BufferedCore(string source,int quality,CancellationToken caller,string streamlinkQuality){
+        if(streamlinkQuality==null&&IsUrl(source)){
+            Log("Buffered URL playback downloads the source first. For a livestream, choose Streamlink live.");
+            source=await Download(source,quality,caller);
+        }
         string parent=Path.Combine(Root,"Cache","playback");Directory.CreateDirectory(parent);
         string job=Path.Combine(parent,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(job);
         int seconds=Math.Max(1,Math.Min(60,LiveBufferSeconds));
@@ -156,9 +160,7 @@ sealed partial class Engine {
         if(color.ToString().Contains("smpte2084")||color.ToString().Contains("arib-std-b67"))throw new Exception("Buffered enhancement needs SDR input. Use normal playback for an HDR source.");
         string input=source;
         if(info.Width!=workW||info.Height!=workH||info.Rotated){
-            // Match MPV's default bilinear scaling. Lanczos ringing plus an
-            // extra lossy encode can make fine highlights fluctuate in motion.
-            await Ffmpeg(new[]{"-i",source,"-an","-vf","scale="+workW+":"+workH+":flags=bilinear","-c:v","h264_nvenc","-preset","p1","-tune","lossless","-pix_fmt","yuv420p",normalized},token);input=normalized;
+            await Ffmpeg(new[]{"-i",source,"-an","-vf","scale="+workW+":"+workH+":flags=lanczos","-c:v","h264_nvenc","-preset","p1","-cq","16","-b:v","0","-pix_fmt","yuv420p",normalized},token);input=normalized;
         }
         return new PreparedChunk{Source=source,Input=input,Neural=neural,Result=result,Info=info,Index=index,Width=width,Height=height,WorkW=workW,WorkH=workH,PrepareSeconds=timer.Elapsed.TotalSeconds};
     }
@@ -169,7 +171,7 @@ sealed partial class Engine {
         double videoDuration=chunk.Duration,offset=chunk.Offset;
         var mux=new List<string>{"-i",neural,"-i",source,"-map","0:v:0","-map","1:a:0?"};
         bool resize=workW!=width||workH!=height;
-        if(resize)mux.AddRange(new[]{"-vf","scale="+width+":"+height+":flags=bilinear","-c:v","h264_nvenc","-preset","p1","-cq","16","-b:v","0","-pix_fmt","yuv420p","-g",Math.Max(1,(int)Math.Round(info.Fps)).ToString(),"-bf","0","-fps_mode","passthrough"});
+        if(resize)mux.AddRange(new[]{"-vf","scale="+width+":"+height+":flags=lanczos","-c:v","h264_nvenc","-preset","p1","-cq","18","-b:v","0","-pix_fmt","yuv420p","-g",Math.Max(1,(int)Math.Round(info.Fps)).ToString(),"-bf","0","-fps_mode","passthrough"});
         else mux.AddRange(new[]{"-c:v","copy"}); // Preserve completed frames; no second decode/encode.
         mux.AddRange(new[]{"-c:a","aac","-b:a","192k","-af","aresample=async=1:first_pts=0,apad","-t",Num(videoDuration),"-avoid_negative_ts","disabled","-output_ts_offset",Num(offset),"-mpegts_copyts","1","-mpegts_flags","+initial_discontinuity","-muxdelay","0","-f","mpegts",result});
         await Ffmpeg(mux,token);var check=await Probe(result,token);
