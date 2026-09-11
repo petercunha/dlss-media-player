@@ -36,6 +36,8 @@ times for before/after comparisons.
 - Buffered playback with resizing, display smoothing and HDR: finite EOF,
   cancellation and cache cleanup passed.
 - Live local SDR playback verified neural evaluation followed by RTX HDR.
+- Normal export without frame generation preserved 640×360, 30 fps and 10-second
+  duration, with source audio retained.
 
 One 1080p60 comparison (240 frames per chunk) measured a warm chunk at 7.13 seconds
 before and 4.53 seconds after the native ports. First-job times were 9.19 and 9.42
