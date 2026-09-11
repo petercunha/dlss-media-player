@@ -13,7 +13,7 @@ $feeder=Join-Path $DependencyDirectory 'feeder'
 $sdk=Join-Path $DependencyDirectory 'DLSS'
 $vulkan=Join-Path $DependencyDirectory 'Vulkan-Headers'
 $native=Join-Path $DependencyDirectory 'native-player'
-Checkout-Dependency 'https://github.com/jlrouzies-fr/DLSS5-Feeder.git' 'cc68576c569aa35deb5e01d9a6fad5d30ac64dbc' $feeder
+Checkout-Dependency 'https://github.com/jlrouzies-fr/DLSS5-Feeder.git' '3f624855276c4bde55145c712782477639b30e85' $feeder
 Checkout-Dependency 'https://github.com/NVIDIA/DLSS.git' 'a291cc7d2cc642a51566f3dfd5376f635cd1b284' $sdk
 Checkout-Dependency 'https://github.com/KhronosGroup/Vulkan-Headers.git' 'ee2ec5fd83dafce291024683b50dc89219333076' $vulkan
 Checkout-Dependency 'https://github.com/2600th/dlss5-video-player.git' '335ddc4523e3614e6dfc507c7d271b8fe0c71ebb' $native

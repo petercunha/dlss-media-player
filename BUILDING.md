@@ -11,7 +11,7 @@ The native script downloads pinned upstream source into ignored `.build/`, overl
 
 Pinned source revisions:
 
-- Feeder: `cc68576c569aa35deb5e01d9a6fad5d30ac64dbc` (v0.14.0-beta.5)
+- Feeder: `3f624855276c4bde55145c712782477639b30e85` (stable v0.15.1, with our HDR and prepared-video integration)
 - NVIDIA/DLSS SDK: `a291cc7d2cc642a51566f3dfd5376f635cd1b284`
 - Vulkan-Headers: `ee2ec5fd83dafce291024683b50dc89219333076`
 - Native renderer: `335ddc4523e3614e6dfc507c7d271b8fe0c71ebb`
@@ -24,7 +24,7 @@ Install these separately; their binaries and models are intentionally excluded f
 |---|---|
 | `mpv.exe` | [MPV Windows build](https://github.com/zhongfly/mpv-winbuild/releases), D3D11-enabled |
 | `dxgi.dll` | [ReShade](https://reshade.me/) x64 with add-on support; tested 6.8 |
-| `renodx-dlss5.addon64`, `nvngx_dlss.dll`, `nvngx_dlssnr.dll` | Compatible set described by [DLSS5oneclick](https://github.com/faisalkindi/DLSS5oneclick); tested RenoDX v4.70, DLSS 310.9 and NR 310.8.SF-v2 |
+| `renodx-dlss5.addon64`, `nvngx_dlss.dll`, `nvngx_dlssnr.dll` | Compatible set described by [DLSS5oneclick](https://github.com/faisalkindi/DLSS5oneclick); tested RenoDX v4.70, DLSS 310.9.1 and NR 310.8.SF-v2 |
 | `reshade-shaders/Shaders/DLSS5_Feed.fx` | Pinned [DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) shader |
 | `reshade-shaders/Shaders/`, `Textures/` | [LumeniteFX](https://github.com/umar-afzaal/LumeniteFX), including shader includes, textures and ReShade shader headers |
 | `tools/ffmpeg.exe`, `tools/ffprobe.exe` | [FFmpeg Windows build](https://www.gyan.dev/ffmpeg/builds/), with CUDA/NVENC |

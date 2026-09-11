@@ -58,6 +58,10 @@ public:
                              bool temporalReset, float frameTimeMs,
                              CapturedVideoFrame& capture);
 
+    // Port of upstream's bounded per-capture fence queue (fa4b7a0).
+    bool QueueFrameForCache(const uint8_t* bgra,size_t bytes,const float* guides,size_t guideBytes,uint32_t gridW,uint32_t gridH,bool reset,float frameMs);
+    bool ResolveOldestCapture(CapturedVideoFrame& capture);
+    static constexpr uint32_t CaptureSlots=4;
     void SetDLSS(bool enabled) { m_dlssEnabled = enabled; }
     void SetSyntheticJitter(bool enabled) { m_syntheticJitter = enabled; }
     bool DLSSAvailable() const { return m_dlss.Available(); }
@@ -112,6 +116,8 @@ private:
     bool SignalFrameSlot(uint32_t slot);
     bool WaitGPUForContinuedUse();
     bool CaptureEvaluatedFrame(CapturedVideoFrame& capture);
+    bool QueueEvaluatedFrame();
+    bool WaitForFence(uint64_t value);
     d3d12_renderer_detail::FenceWaitResult DrainForRetirement();
     void Barrier(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res,
                  D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after);
@@ -147,6 +153,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_rootSig;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_psoConvert;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_psoPresent;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_psoCacheCapture;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_psoMotionDebug;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_psoDepthDebug;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_psoDepthWrite;
@@ -162,7 +169,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> m_guideGrid;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_guideUpload[FrameCount];
     Microsoft::WRL::ComPtr<ID3D12Resource> m_cacheOutput;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_cacheReadback;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_cacheReadback[CaptureSlots];
+    uint8_t* m_cacheMapped[CaptureSlots]{};
+    uint64_t m_captureFence[CaptureSlots]{};
+    uint32_t m_captureWrite{},m_captureRead{},m_capturePending{};
 
     uint8_t* m_uploadMapped[FrameCount]{};
     uint8_t* m_guideMapped[FrameCount]{};

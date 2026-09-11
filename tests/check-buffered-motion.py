@@ -18,6 +18,8 @@ for i in range(10, 300):
     outside = (y > 80) & (y < 240) & ((x < left-3) | (x > left+83) | (y < 127) | (y > 213))
     f = frames[i].astype(float)
     red = (f[:,:,0] > f[:,:,1]*1.6) & (f[:,:,0] > f[:,:,2]*1.5) & (f[:,:,0] > 100)
+    # A BGRA/RGBA channel swap must not pass merely by removing all red trails.
+    assert np.count_nonzero(red[140:200, left+20:left+60]) > 1500, ('red object lost or channels swapped', i)
     trails.append(np.count_nonzero(outside & red))
 # Source dark cells are around 15. The old temporal path reached ~170;
 # independent-frame rendering measured <16. Allow normal encoder variation.

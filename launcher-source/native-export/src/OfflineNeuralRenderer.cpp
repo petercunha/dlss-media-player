@@ -6,6 +6,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <deque>
 #include <limits>
 #include <thread>
 
@@ -199,6 +200,22 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
             attempt.encoderError = startError;return attempt;
         }
         bool temporalReset = !verifiedContinuation;
+        std::deque<int64_t> pendingTimestamps;
+        int64_t lastSourceTimestamp=-1;
+        auto encode=[&](std::vector<uint8_t>& pixels,int64_t timestamp){
+            if(pixels.size()!=expectedBytes){attempt.failure=AttemptFailure::Neural;encoder.Cancel();return false;}
+            const auto error=encoder.WriteFrame(pixels,stop);
+            if(error!=EncodeError::None){attempt.failure=error==EncodeError::Cancelled?AttemptFailure::Cancelled:AttemptFailure::Encoder;attempt.encoderError=error;encoder.Cancel();return false;}
+            ++attempt.frames;++attempt.evaluations;attempt.bytes+=expectedBytes;
+            if(!attempt.hasTimestamp){attempt.firstTimestamp=timestamp;attempt.hasTimestamp=true;}
+            attempt.lastTimestamp=timestamp;emit(NeuralRenderPhase::NeuralRendering,attempt.frames,attempt.bytes,true);return true;
+        };
+        auto resolve=[&]{
+            std::vector<uint8_t> pixels;
+            if(!evaluator.Resolve(pixels)){attempt.failure=AttemptFailure::Neural;encoder.Cancel();return false;}
+            const auto timestamp=pendingTimestamps.front();pendingTimestamps.pop_front();
+            return encode(pixels,timestamp);
+        };
         for (;;) {
             if (stop.stop_requested()) {
                 attempt.failure = AttemptFailure::Cancelled;attempt.encoderError=EncodeError::Cancelled;
@@ -207,6 +224,7 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
             JobFrame frame;
             const JobRead read = source.Read(frame, stop);
             if (read == JobRead::EndOfStream) {
+                while(!pendingTimestamps.empty())if(!resolve())return attempt;
                 if(attempt.frames==0){attempt.failure=AttemptFailure::Source;encoder.Cancel();}
                 break;
             }
@@ -218,8 +236,20 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
                 attempt.failure=AttemptFailure::Source;encoder.Cancel();return attempt;
             }
             if (frame.timestamp100ns < 0 ||
-                (attempt.hasTimestamp && frame.timestamp100ns <= attempt.lastTimestamp)) {
+                (lastSourceTimestamp>=0 && frame.timestamp100ns <= lastSourceTimestamp)) {
                 attempt.failure=AttemptFailure::Source;encoder.Cancel();return attempt;
+            }
+            lastSourceTimestamp=frame.timestamp100ns;
+            // Keep the receipt-producing first frame synchronous. Subsequent
+            // captures use upstream's FIFO readback-slot design; neural commands
+            // and their copies are ordered on the same D3D12 queue.
+            if(request.reuseSession&&attempt.frames>0){
+                if(!evaluator.Enqueue(frame,temporalReset||frame.discontinuity)){
+                    attempt.failure=AttemptFailure::Neural;encoder.Cancel();return attempt;
+                }
+                temporalReset=false;pendingTimestamps.push_back(frame.timestamp100ns);
+                if(pendingTimestamps.size()>=3&&!resolve())return attempt;
+                continue;
             }
             std::vector<uint8_t> captured;
             for (uint64_t capture = 1; ; ++capture) {
@@ -254,21 +284,7 @@ NeuralRenderResult RunJob(const NeuralRenderRequest& request,
                     attempt.failure=AttemptFailure::Neural;encoder.Cancel();return attempt;
                 }
             }
-            const EncodeError writeError = encoder.WriteFrame(captured, stop);
-            if (writeError != EncodeError::None) {
-                attempt.failure = writeError == EncodeError::Cancelled
-                    ? AttemptFailure::Cancelled : AttemptFailure::Encoder;
-                attempt.encoderError=writeError;encoder.Cancel();return attempt;
-            }
-            // Production encoding takes ownership of captured; its size was
-            // validated before enqueue and may now be zero after the move.
-            ++attempt.frames;++attempt.evaluations;attempt.bytes+=expectedBytes;
-            if (!attempt.hasTimestamp) {
-                attempt.firstTimestamp=frame.timestamp100ns;
-                attempt.hasTimestamp=true;
-            }
-            attempt.lastTimestamp=frame.timestamp100ns;
-            emit(NeuralRenderPhase::NeuralRendering,attempt.frames,attempt.bytes,true);
+            if(!encode(captured,frame.timestamp100ns))return attempt;
         }
         const EncodeError finishError=encoder.Finish(stop);
         if(finishError!=EncodeError::None){
@@ -361,7 +377,10 @@ struct TestEvaluatorAdapter {
     }
     bool FeatureCreated()const{return evaluator.FeatureCreated();}
     uint64_t EvaluationCount()const{return evaluator.EvaluationCount();}
-    void ResetTemporal(){evaluator.ResetTemporal();}
+    std::deque<std::vector<uint8_t>> pending;
+    bool Enqueue(const JobFrame& frame,bool reset){std::vector<uint8_t> pixels;if(!Submit(frame,reset,true,pixels))return false;pending.push_back(std::move(pixels));return true;}
+    bool Resolve(std::vector<uint8_t>& pixels){if(pending.empty())return false;pixels=std::move(pending.front());pending.pop_front();return true;}
+    void ResetTemporal(){pending.clear();evaluator.ResetTemporal();}
 };
 struct TestEncoderAdapter {
     IFrameEncoder& encoder;
@@ -412,7 +431,7 @@ struct ProductionEvaluatorAdapter {
         if(stableVideo)guides.SetDepthMode(TemporalGuideGenerator::DepthMode::Flat);
         return true;
     }
-    bool Submit(const JobFrame& frame,bool reset,bool capture,std::vector<uint8_t>& output){
+    bool Submit(const JobFrame& frame,bool reset,bool capture,std::vector<uint8_t>& output,bool queued=false){
         const auto started=SteadyClock::now();
         // Estimated video flow is not reliable enough for cross-frame neural
         // reconstruction: even a confidence mask left visible trails in motion
@@ -427,6 +446,11 @@ struct ProductionEvaluatorAdapter {
         if(!capture){const bool ok=renderer->RenderFrame(frame.bgra.data(),frame.bgra.size(),
             guide.guideGridRGBA32F.data(),guide.guideGridRGBA32F.size()*sizeof(float),
             guide.gridW,guide.gridH,temporalReset,frameMs);if(ok)++successfulEvaluations;return ok;}
+        if(queued){
+            const bool ok=renderer->QueueFrameForCache(frame.bgra.data(),frame.bgra.size(),guide.guideGridRGBA32F.data(),guide.guideGridRGBA32F.size()*sizeof(float),guide.gridW,guide.gridH,temporalReset,frameMs);
+            renderSeconds+=std::chrono::duration<double>(SteadyClock::now()-prepared).count();
+            if(ok){++successfulEvaluations;++profiledFrames;}return ok;
+        }
         CapturedVideoFrame captured;
         if(!renderer->RenderFrameForCache(frame.bgra.data(),frame.bgra.size(),
             guide.guideGridRGBA32F.data(),guide.guideGridRGBA32F.size()*sizeof(float),
@@ -436,7 +460,9 @@ struct ProductionEvaluatorAdapter {
     }
     bool FeatureCreated()const{return renderer&&renderer->DLSSFeatureCreated();}
     uint64_t EvaluationCount()const{return successfulEvaluations;}
-    void ResetTemporal(){guides.Reset();forceReset=true;}
+    bool Enqueue(const JobFrame& frame,bool reset){std::vector<uint8_t> ignored;return Submit(frame,reset,true,ignored,true);}
+    bool Resolve(std::vector<uint8_t>& output){CapturedVideoFrame frame;if(!renderer->ResolveOldestCapture(frame))return false;output=std::move(frame.bgra);return true;}
+    void ResetTemporal(){CapturedVideoFrame discard;while(renderer&&renderer->ResolveOldestCapture(discard)){}guides.Reset();forceReset=true;}
 };
 
 struct ProductionEncoderAdapter {

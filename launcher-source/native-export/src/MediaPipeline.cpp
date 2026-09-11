@@ -404,8 +404,10 @@ std::vector<std::wstring> BuildEncoderArguments(const EncoderSpec& spec,
         L"-framerate", FrameRateText(spec.fps), L"-i", L"pipe:0", L"-an",
     };
     if (spec.kind == EncoderKind::HevcNvenc) {
+        // Upstream 111aed1: establish the CUDA context before stdin's first frame.
+        arguments.insert(arguments.begin()+5,{L"-init_hw_device",L"cuda=cu:0"});
         arguments.insert(arguments.end(), {
-            L"-c:v", L"hevc_nvenc", L"-preset", L"p4", L"-tune", L"hq",
+            L"-c:v", L"hevc_nvenc", L"-split_encode_mode", L"auto", L"-preset", L"p4", L"-tune", L"hq",
             L"-rc", L"vbr", L"-cq", L"16", L"-b:v", L"0",
             L"-pix_fmt", L"yuv420p"});
     } else {
