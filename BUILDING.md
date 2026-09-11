@@ -45,17 +45,13 @@ RIFE explicitly selects Vulkan GPU 0, verified as the RTX 5070 Ti on the origina
 
 ## Integration tests
 
-Compile a test from `tests/` with all seven top-level launcher `.cs` files (including `Images.cs` and `BufferedVideo.cs`), `/target:exe /main:<test class>`, and the same assembly references as build.ps1.
+Compile a test from `tests/` with all six top-level launcher `.cs` files (including `Images.cs` and `LiveVideo.cs`), `/target:exe /main:<test class>`, and the same assembly references as build.ps1.
 
 - ExportRegressionTests: player root, synthetic source path, new destination, and `off`, `rife`, or `cancel`.
 - LiveRtxTests: player root, local SDR path or live HTTPS URL, and output target index (4 = fullscreen). Its HDR assertions require Windows HDR enabled.
-- BufferedPlaybackTests: isolated player root, synthetic video path. For a finite Streamlink fixture, append `streamlink` and its expected video-frame count; the test also requires audio in that case. Requires the rebuilt feeder and native exporter, plus Windows HDR. Tests completed neural output, HDR-only presentation, EOF, cancellation and cleanup.
-- SourceModeTests: player root. Checks defaults, migration of old VSR settings and buffer controls.
-- RenderRefillTests: player root, a new empty scratch directory, and a synthetic MPEG-TS fixture of at least 13 seconds. Delays the completed-output producer and verifies MPV automatically pauses and resumes.
+- SourceModeTests: player root. Checks defaults and migration to the DLSS/Off/VSR selector.
 - The launcher also supports `--self-test`.
 
 Generate test media outside Git. Raw logs are ignored because they may contain source URLs and local paths. Sanitized summaries are in verification/.
 
 ImageTests exercises local files/direct URLs, PNG dimensions, alpha, and overwrite protection. Compile like the other launcher tests and pass player root, synthetic PNG source (or URL), and a new PNG destination. ColorConversionTests.cpp is a historical VSR diagnostic and is not part of the current HDR/buffering test suite.
-
-The render buffer requires the new `NeuralExport --batch` protocol and `DLSS_MEDIA_PRERENDERED` feeder path. Rebuild both native components alongside the launcher. The batch worker retains the verified neural session between requests; ordinary exports keep their one-shot path.

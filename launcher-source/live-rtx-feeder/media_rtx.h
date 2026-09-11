@@ -8,7 +8,7 @@ static const GUID VsrGuid={0xd43ce1b3,0x1f4b,0x48ac,{0xba,0xee,0xc3,0xc2,0x53,0x
 static const GUID HdrGuid={0xfdd62bb4,0x620b,0x4fd7,{0x9a,0xb3,0x1e,0x59,0xd0,0xd5,0x44,0xb3}};
 static bool prePass=false;
 static int Mode(){static int mode=[] {char v[16]={};GetEnvironmentVariableA("DLSS_MEDIA_RTX",v,sizeof(v));return atoi(v)&2;}();return mode;}
-static bool Prerendered(){static bool value=[] {char v[16]={};GetEnvironmentVariableA("DLSS_MEDIA_PRERENDERED",v,sizeof(v));return atoi(v)==1;}();return value;}
+static bool BypassNeural(){static bool value=[] {char v[16]={};GetEnvironmentVariableA("DLSS_MEDIA_ENHANCEMENT",v,sizeof(v));return strcmp(v,"off")==0||strcmp(v,"vsr")==0;}();return value;}
 static void Report(const char* format,...){
  char text[1024];va_list args;va_start(args,format);vsnprintf(text,sizeof(text),format,args);va_end(args);
  Log("%s",text);size_t n=strlen(text);if(n<sizeof(text)-2){text[n++]='\n';text[n]=0;}DWORD written=0;
@@ -79,7 +79,8 @@ static bool Build(ID3D11DeviceContext* ctx,D3D11_TEXTURE2D_DESC input,D3D11_TEXT
  struct Extension{UINT version,method,enable;};
  if(Mode()&1){Extension ext={1,2,1};if(!Check(s.context->VideoProcessorSetStreamExtension(s.enhance.Get(),0,&VsrGuid,sizeof(ext),&ext),"enable RTX VSR"))return false;}
  if(hdr){UINT supported=0;if(!Check(s.context->VideoProcessorGetStreamExtension(s.enhance.Get(),0,&HdrGuid,sizeof(supported),&supported),"query RTX HDR")||!supported){Report("[media-rtx] RTX HDR unavailable");return false;}Extension ext={4,3,1};if(!Check(s.context->VideoProcessorSetStreamExtension(s.enhance.Get(),0,&HdrGuid,sizeof(ext),&ext),"enable RTX HDR"))return false;}
- Report("[media-rtx] %s VSR requested=%d HDR=%d: %ux%u -> %ux%u; format=%d",prePass?"Before DLSS:":"After DLSS:",Mode()&1,hdr,s.iw,s.ih,s.ow,s.oh,(int)target.Format);
+ if(BypassNeural())Report("[media-rtx] MPV output -> HDR=%d; DLSS disabled; source VSR is controlled by MPV",hdr);
+ else Report("[media-rtx] After DLSS: HDR=%d: %ux%u -> %ux%u; format=%d",hdr,s.iw,s.ih,s.ow,s.oh,(int)target.Format);
  if((Mode()&1) && (s.iw>2560||s.ih>1440))Report("[media-rtx] VSR input exceeds documented 1440p range; driver activation is not guaranteed");
  return true;
 }
@@ -100,7 +101,7 @@ static bool Process(ID3D11DeviceContext* ctx,ID3D11Texture2D* input,ID3D11Render
  stream.pInputSurface=s.yuvView.Get();
  if(ok)ok=Check(s.context->VideoProcessorBlt(s.enhance.Get(),s.resultOut.Get(),s.sequence++,1,&stream),"RTX processing");
  if(ok&&s.swap)ok=Check(s.swap->SetColorSpace1(hdr?DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709),"presentation color space");
- if(ok){ctx->CopyResource(target.Get(),s.result.Get());if(++s.frames==1||s.frames%600==0)Report("[media-rtx] processed %s frame %llu; HDR=%d",prePass?"pre-DLSS VSR":"neural",s.frames,hdr);}
+ if(ok){ctx->CopyResource(target.Get(),s.result.Get());if(++s.frames==1||s.frames%600==0)Report("[media-rtx] processed %s frame %llu; HDR=%d",BypassNeural()?"non-DLSS":"neural",s.frames,hdr);}
  ID3D11RenderTargetView* restore=old.Get();ctx->OMSetRenderTargets(1,&restore,depth.Get());
  if(!ok){s.failed=true;if(s.swap)s.swap->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);}
  return ok;

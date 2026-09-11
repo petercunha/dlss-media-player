@@ -7207,11 +7207,11 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
     auto *ctx = reinterpret_cast<ID3D11DeviceContext *>(cl->get_native());
     if (ctx == nullptr || ctx->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) return;
 
-    // Buffered video is already neural-rendered. Bypass every DLSS submission
-    // and apply only the optional HDR conversion to MPV's current backbuffer.
-    if(MediaRtx::Prerendered()) {
+    // Off/VSR bypass every DLSS submission. MPV performs source VSR, when
+    // selected; this hook only adds optional HDR to the current backbuffer.
+    if(MediaRtx::BypassNeural()) {
         static bool reported=false;
-        if(!reported){MediaRtx::Report("[media-rtx] prerendered playback: live DLSS bypassed; HDR=%d",MediaRtx::Mode()!=0);reported=true;}
+        if(!reported){MediaRtx::Report("[media-rtx] live enhancement: DLSS bypassed; HDR=%d",MediaRtx::Mode()!=0);reported=true;}
         if(MediaRtx::Mode()) {
             auto* output=reinterpret_cast<ID3D11RenderTargetView*>(rtv.handle);
             Microsoft::WRL::ComPtr<ID3D11Resource> resource;

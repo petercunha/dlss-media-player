@@ -42,7 +42,7 @@ sealed partial class Engine {
         // Child-scoped setting also reaches MPV launched by Streamlink.
         info.EnvironmentVariables["DLSS_MEDIA_RTX"] = PreparedPlayback?"0":(LiveRtxMode&2).ToString();
         info.EnvironmentVariables["DLSS_MEDIA_GEOMETRY"] = "";
-        info.EnvironmentVariables["DLSS_MEDIA_PRERENDERED"] = BufferedPlayback&&string.Equals(Path.GetFileName(exe),"mpv.exe",StringComparison.OrdinalIgnoreCase)?"1":"0";
+        info.EnvironmentVariables["DLSS_MEDIA_ENHANCEMENT"] = PreparedPlayback?"off":LiveEnhancement==3?"off":LiveEnhancement==4?"vsr":"dlss";
         using(var p = new Process { StartInfo=info }) {
             p.OutputDataReceived += (s,e)=> { if(e.Data!=null) output(e.Data); };
             p.ErrorDataReceived += (s,e)=> { if(e.Data!=null) output(e.Data); };
@@ -59,7 +59,6 @@ sealed partial class Engine {
             if(streamCode!=0)throw new Exception("Streamlink playback failed; see the activity log.");
             return streamCode;
         }
-        if(LiveBufferSeconds>0&&!PreparedPlayback)return await PlayBuffered(input,quality,token);
         string player=PreparedPlayback?Path.Combine(Root,"tools","plain-player","mpv.exe"):Path.Combine(Root,"mpv.exe"); if(!File.Exists(player)) throw new FileNotFoundException("mpv.exe is missing.");
         var args=new List<string> { "--idle=no","--keep-open=no","--force-window=immediate","--input-terminal=no","--msg-level=all=warn,cplayer=info", "--title=DLSS 5 Player" };
         args.AddRange(MotionArguments());

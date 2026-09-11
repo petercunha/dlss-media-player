@@ -1,6 +1,6 @@
 # DLSS Media Player
 
-Windows media player for local videos, URLs, online videos, and live streams, with experimental DLSS neural enhancement, RTX Video HDR and rendered-frame buffering, and optional offline RIFE frame generation.
+Windows media player for local videos, URLs, online videos, and live streams, with experimental DLSS neural enhancement, RTX Video HDR  and optional offline RIFE frame generation.
 
 ## Screenshots
 
@@ -8,39 +8,20 @@ Windows media player for local videos, URLs, online videos, and live streams, wi
 | --- | --- |
 | [![Live playback controls](docs/images/launcher-live.jpg)](docs/images/launcher-live.jpg) | [![Export controls with RIFE frame generation](docs/images/launcher-export.jpg)](docs/images/launcher-export.jpg) |
 
-Click either screenshot for the full-size view. These original screenshots show the earlier interface; the current version retains HDR, removes VSR modes, and adds render buffering.
+Click either screenshot for the full-size view. These original screenshots show the earlier interface; the current version offers DLSS, Off and VSR with optional HDR.
 
 ## Live playback
 
 Open `DLSS-Media-Launcher.exe`. Select **Live playback** for a file or URL. Twitch and other URLs recognized by an installed Streamlink plugin automatically use Streamlink. Regular YouTube videos use MPV/yt-dlp; detected YouTube live broadcasts use Streamlink. **Streamlink live** also allows explicit selection and Streamlink protocol URLs.
 
 - **Live Output Size**: fit the window, fit within 1080p/1440p/2160p, or **Display · fullscreen**. Press F to return to a window. Aspect ratio is preserved. Fixed fit sizes are window bounds, not encoded dimensions.
-- **RTX Video HDR**: Off or HDR. VSR modes have been removed. HDR requires Windows HDR on the playback display.
-- **Live DLSS Work Size**: **100% full quality** is the default. 75% and 50% reduce neural work dimensions.
+- **RTX Video HDR**: Off or HDR. HDR requires Windows HDR on the playback display.
+- **Live Enhancement**: **100% full quality** is the default DLSS mode. 75% and 50% reduce DLSS work dimensions. **Off** disables DLSS. **RTX VSR** uses NVIDIA video scaling instead of DLSS. HDR remains independent in all modes.
 - **Motion**: original frames or MPV display smoothing. RIFE remains an offline option.
-- **Render Buffer**: Off, 5, 10, 20 or 30 seconds of enhanced frames. This is an experimental separate rendering engine, described below.
 
 Normal playback scales in MPV, applies DLSS neural enhancement, then optionally converts SDR BT.709 to HDR on GPU textures. No rendered-video intermediate is needed in this mode. HDR failures fall back to SDR. Native HDR material is tone-mapped to SDR first when RTX HDR is selected; this mode is primarily intended for SDR sources.
 
-### Render-ahead playback
-
-With **Render Buffer** enabled, acquisition, neural rendering and playback run independently:
-
-`capture → prepare/resize → persistent DLSS worker → package → completed-video queue → MPV → optional HDR`
-
-MPV receives encoded frames that have already been enhanced. Its live DLSS pass is bypassed. The selected buffer is a target amount of **completed enhanced video**, not downloaded source data. Playback waits for that target, then pauses/refills if enhanced output runs out. A short finite clip can start with less than the target after rendering finishes.
-
-Preparation, neural rendering and packaging overlap through bounded queues. Neural frames remain sequential in one retained GPU/model session. At 100% work size, packaging copies the encoded neural video instead of decoding and encoding it again; reduced work sizes still require a final resize/encode. Buffered intermediates use a 90 kHz clock to preserve frame cadence during copying. The activity log separates preparation, neural processing and packaging times; **neural rate** excludes the other stages. The cumulative pipeline time includes startup, source waits and queue backpressure, so neither number alone is a sustained throughput guarantee. Task Manager's overall GPU percentage does not measure the latency of the pipeline's GPU waits. Buffering absorbs temporary stalls; it cannot guarantee continuous playback when sustained rendering is slower than the source.
-
-Files are read ahead in bounded chunks. Recognized Streamlink URLs use live capture automatically, including with buffering enabled. Other yt-dlp URLs download first in buffered mode. Source URLs, authentication and site restrictions remain subject to Streamlink/yt-dlp support.
-
-At 100%, the source is conventionally scaled to the selected output bounds **before** neural enhancement, preserving aspect ratio. At 75%/50%, neural work uses smaller dimensions and the enhanced result is spatially resized to the output bounds. Fit player window uses source dimensions in buffered mode; changing the window does not rerender cached frames. These are neural enhancement paths, not a claim of native DLSS Super Resolution.
-
-Buffered playback now evaluates each source frame independently with neural temporal history reset on every frame. This avoids the motion warping seen with estimated video guides; the GPU device/model remains loaded, and DLSS enhancement is still evaluated for every output frame. Synthetic camera jitter stays disabled and the depth guide is flat. MPV display smoothing remains available. The tradeoff is losing neural temporal accumulation, which can reduce temporal detail stability compared with the normal live renderer. Segment timing uses rendered frame counts rather than audio-padded container durations. Normal and buffered playback share MPV display-smoothing options. Normal playback already keeps its neural renderer loaded between frames.
-
-Tradeoffs: startup delay, temporary NVENC encoding/decoding and SDR 8-bit cached video. The buffered renderer remains different from normal live playback; identical visual quality is not claimed. Independent-frame enhancement removes history-based trails in the motion fixture, but can still alter details or flicker. HDR runs during presentation and is not cached; stalls caused by HDR/display processing can still occur. Seeking, subtitles, additional audio tracks and source format changes are not supported by this experimental queue. Use normal playback for HDR sources. A format change requires restarting buffered playback. Live capture cuts at keyframes, so actual buffer duration can exceed the selection.
-
-Temporary files live in `Cache/playback` and are deleted on normal completion/Stop. Rendering and completed-output queues are bounded; capture stops at approximately 4 GB of temporary data or below 1 GB free disk space. Forced termination can leave a cache directory. One offline/buffered neural job runs at a time.
+VSR processes decoded frames before MPV window scaling, with up to 4× enlargement toward the selected output bounds. It skips enlargement when the source already meets those bounds. Enable RTX Video Super Resolution in NVIDIA settings; driver activation depends on source and hardware support. Buffered playback has been removed.
 
 ## Prepare and export
 
@@ -66,7 +47,6 @@ See [performance measurements](verification/render-performance.md) for the Septe
 
 Tested on RTX 5070 Ti 16 GB, driver 616.64:
 
-- Render-ahead playback: verified neural output, HDR-only presentation, audio, EOF, cancellation and cleanup. See [buffer verification](verification/render-buffer.md).
 - Historical Twitch live DLSS/RTX tests are retained in verification; VSR has since been removed.
 - RIFE: 144 frames became 288 at 48 fps, retaining six-second duration and audio across a chunk boundary.
 - Variable-rate input, 90-degree rotation, and cancellation during RIFE.

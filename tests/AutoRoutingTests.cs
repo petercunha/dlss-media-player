@@ -9,7 +9,7 @@ class AutoRoutingTests {
   Check(!Engine.IsYouTubeUrl("https://youtube.com.evil.example/watch")&&!Engine.IsYouTubeUrl("https://example.com/youtube.com"),"YouTube host validation");
   using(var f=new Launcher("")){
    Field<ComboBox>(f,"action").SelectedIndex=0;Field<ComboBox>(f,"motion").SelectedIndex=1;Field<TextBox>(f,"input").Text="https://www.twitch.tv/sweetheart";
-   Check(Field<ComboBox>(f,"buffer").Enabled&&Field<ComboBox>(f,"motion").Enabled&&!Field<ComboBox>(f,"network").Enabled,"Automatic Twitch UI routing and smoothing controls");
+   Check(Field<ComboBox>(f,"motion").Enabled&&!Field<ComboBox>(f,"network").Enabled,"Automatic Twitch UI routing and smoothing controls");
    Field<ComboBox>(f,"motion").SelectedIndex=2;Check(Field<ComboBox>(f,"motion").SelectedIndex==0,"A live channel must not accidentally enter offline RIFE/download mode");
   }
   var e=new Engine(a[0]){SmoothPlayback=true};Check(e.MotionArguments().Contains("--video-sync=display-resample")&&e.MotionArguments().Contains("--interpolation=yes"),"Shared smoothing options");

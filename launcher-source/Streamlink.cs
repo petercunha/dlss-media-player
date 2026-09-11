@@ -74,7 +74,6 @@ sealed partial class Engine {
         if(streams==null||streams.Count==0)throw new Exception("Streamlink found no playable streams. The channel may be offline.");
         string selected=SelectStreamlinkQuality(streams.Keys,quality);
         if(string.IsNullOrEmpty(selected))throw new Exception("Streamlink found no playable stream quality.");
-        if(LiveBufferSeconds>0)return await PlayBuffered(source,quality,token,selected);
         Log("Streamlink · selected "+selected+" · opening DLSS player");
         if(quality>0&&selected=="best")Log("No named resolution matched the quality cap; using the site's best available stream.");
         // Streamlink owns both the local HTTP transport and the player child process.
