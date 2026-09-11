@@ -5,6 +5,8 @@ class AutoRoutingTests {
  [STAThread] static int Main(string[] a){try{
   Check(Engine.IsTwitchUrl("https://www.twitch.tv/sweetheart?x=1"),"Twitch channel detection");
   Check(!Engine.IsTwitchUrl("https://twitch.tv.evil.example/sweetheart")&&!Engine.IsTwitchUrl("https://example.com/twitch.tv")&&!Engine.IsTwitchUrl("file:///twitch.tv"),"Host validation");
+  Check(Engine.IsYouTubeUrl("https://www.youtube.com/watch?v=0bulIGjRJOQ")&&Engine.IsYouTubeUrl("https://youtu.be/0bulIGjRJOQ"),"YouTube host detection");
+  Check(!Engine.IsYouTubeUrl("https://youtube.com.evil.example/watch")&&!Engine.IsYouTubeUrl("https://example.com/youtube.com"),"YouTube host validation");
   using(var f=new Launcher("")){
    Field<ComboBox>(f,"action").SelectedIndex=0;Field<ComboBox>(f,"motion").SelectedIndex=1;Field<TextBox>(f,"input").Text="https://www.twitch.tv/sweetheart";
    Check(Field<ComboBox>(f,"buffer").Enabled&&Field<ComboBox>(f,"motion").Enabled&&!Field<ComboBox>(f,"network").Enabled,"Automatic Twitch UI routing and smoothing controls");

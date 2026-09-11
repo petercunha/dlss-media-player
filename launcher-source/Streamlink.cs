@@ -12,9 +12,22 @@ sealed partial class Engine {
     public static bool IsTwitchUrl(string source){
         Uri uri;return IsUrl(source)&&Uri.TryCreate(source,UriKind.Absolute,out uri)&&(uri.Host.Equals("twitch.tv",StringComparison.OrdinalIgnoreCase)||uri.Host.EndsWith(".twitch.tv",StringComparison.OrdinalIgnoreCase));
     }
+    public static bool IsYouTubeUrl(string source){
+        Uri uri;if(!IsUrl(source)||!Uri.TryCreate(source,UriKind.Absolute,out uri))return false;
+        return uri.Host.Equals("youtu.be",StringComparison.OrdinalIgnoreCase)||uri.Host.Equals("youtube.com",StringComparison.OrdinalIgnoreCase)||uri.Host.EndsWith(".youtube.com",StringComparison.OrdinalIgnoreCase);
+    }
     public async Task<bool> CanStreamlinkHandle(string source,CancellationToken token){
         if(IsTwitchUrl(source))return true;
         if(!IsUrl(source))return false;
+        if(IsYouTubeUrl(source)){
+            // Streamlink also claims finite YouTube videos. Its progressive
+            // transfer can reach EOF and close MPV long before playback ends.
+            // Resolve regular videos through MPV/yt-dlp, preserving quality and
+            // seeking; only actual live broadcasts take the Streamlink route.
+            var status=new StringBuilder();
+            int result=await Run(Tool("yt-dlp"),new[]{"--ignore-config","--no-playlist","--skip-download","--no-warnings","--socket-timeout","25","--js-runtimes","deno:"+Tool("deno"),"--print","%(live_status)s","--",source},token,l=>status.AppendLine(l));
+            if(result!=0||!status.ToString().Split('\n').Any(l=>l.Trim()=="is_live"))return false;
+        }
         string exe=Path.Combine(Root,"tools","streamlink","bin","streamlink.exe");
         if(!File.Exists(exe))return false;
         var args=StreamlinkCommon();args.AddRange(new[]{"--loglevel","error","--can-handle-url-no-redirect",source});

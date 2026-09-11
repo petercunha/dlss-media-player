@@ -12,7 +12,7 @@ Click either screenshot for the full-size view. These original screenshots show 
 
 ## Live playback
 
-Open `DLSS-Media-Launcher.exe`. Select **Live playback** for a file or URL. Twitch and other URLs recognized by an installed Streamlink plugin automatically use Streamlink. **Streamlink live** also allows explicit selection and Streamlink protocol URLs.
+Open `DLSS-Media-Launcher.exe`. Select **Live playback** for a file or URL. Twitch and other URLs recognized by an installed Streamlink plugin automatically use Streamlink. Regular YouTube videos use MPV/yt-dlp; detected YouTube live broadcasts use Streamlink. **Streamlink live** also allows explicit selection and Streamlink protocol URLs.
 
 - **Live Output Size**: fit the window, fit within 1080p/1440p/2160p, or **Display · fullscreen**. Press F to return to a window. Aspect ratio is preserved. Fixed fit sizes are window bounds, not encoded dimensions.
 - **RTX Video HDR**: Off or HDR. VSR modes have been removed. HDR requires Windows HDR on the playback display.
